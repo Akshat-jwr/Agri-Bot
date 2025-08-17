@@ -15,6 +15,8 @@ from datetime import datetime
 from app.tools.llm_tools.gemini_llm import agricultural_llm
 from app.tools.rag_core.google_search_tool import google_search_tool
 from app.language_processing.translator import agricultural_translator
+from app.tools.fact_checker.agricultural_fact_checker import agricultural_fact_checker
+from app.tools.translation.perfect_agricultural_translator import perfect_agricultural_translator
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +37,13 @@ class SimpleAgriculturalRAGOrchestrator:
                                        farmer_location: Optional[str] = None,
                                        user_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Complete agricultural query processing with Google Search and multilingual support
+        Complete agricultural query processing with Google Search and PERFECT multilingual fact-checking
         
         Pipeline:
-        1. Language Detection & Translation to English
+        1. PERFECT Language Detection & Translation to English
         2. Google Search for latest information
         3. Context fusion with expert LLM generation
-        4. Response translation back to original language
+        4. ADVANCED FACT-CHECKING & PERFECT MULTILINGUAL RESPONSE VALIDATION
         """
         start_time = datetime.now()
         self.performance_metrics['total_queries'] += 1
@@ -49,10 +51,10 @@ class SimpleAgriculturalRAGOrchestrator:
         try:
             logger.info(f"🌾 Processing agricultural query: {farmer_query[:100]}...")
             
-            # Step 1: Language Processing - Detect and translate to English
-            logger.info("🌐 Step 1: Processing language and translation...")
-            english_query, original_language = agricultural_translator.query_to_english(farmer_query)
-            logger.info(f"Language: {original_language} → English: {english_query}")
+            # Step 1: PERFECT Language Processing - Detect and translate to English
+            logger.info("🌐 Step 1: Perfect language detection and translation...")
+            english_query, original_language = perfect_agricultural_translator.detect_language_and_translate(farmer_query)
+            logger.info(f"🎯 Perfect detection: {original_language} → English: {english_query}")
             
             # Step 2: Google Search for latest information
             logger.info("🔍 Step 2: Searching for latest agricultural information...")
@@ -85,13 +87,19 @@ class SimpleAgriculturalRAGOrchestrator:
                 farmer_context={'location': farmer_location}
             )
             
-            # Step 4: Translate response back to original language
-            final_response = expert_response
-            if original_language != 'en':
-                logger.info(f"🌐 Step 4: Translating response back to {original_language}...")
-                final_response = agricultural_translator.response_to_original_language(
-                    expert_response, original_language
-                )
+            # Step 4: INTELLIGENT FACT-CHECKING & MULTILINGUAL RESPONSE
+            logger.info("🔍 Step 4: Fact-checking and generating final response...")
+            
+            fact_check_result = await agricultural_fact_checker.validate_and_respond(
+                original_query=farmer_query,  # Original query for language detection
+                expert_response=expert_response,
+                context_data=context_data
+            )
+            
+            final_response = fact_check_result['final_response']
+            validation_status = fact_check_result['validation_status']
+            # Use the original_language we detected in Step 1
+            # original_language = fact_check_result['original_language']  # This was causing the error
             
             # Performance metrics
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -124,25 +132,43 @@ class SimpleAgriculturalRAGOrchestrator:
                         'weather_data': len(context_data.get('weather_intelligence', {})),
                         'market_data': len(context_data.get('market_intelligence', {})),
                         'agricultural_knowledge': len(context_data.get('agricultural_data', {}))
-                    }
+                    },
+                    # NEW: Fact-checking metadata
+                    'fact_check_status': validation_status,
+                    'fact_check_details': fact_check_result.get('fact_check_details', {}),
+                    'accuracy_validated': fact_check_result.get('processing_info', {}).get('accuracy_validated', False),
+                    'language_preserved': fact_check_result.get('processing_info', {}).get('language_preserved', False)
                 }
             }
             
-            logger.info(f"✅ Query processed successfully in {processing_time:.2f}s")
+            logger.info(f"✅ Query processed successfully in {processing_time:.2f}s with fact-checking: {validation_status}")
             return result
             
         except Exception as e:
             logger.error(f"❌ Error processing agricultural query: {e}")
             
-            # Fallback response in original language
+            # Fallback response with language detection attempt
             processing_time = (datetime.now() - start_time).total_seconds()
-            original_language = original_language if 'original_language' in locals() else 'unknown'
+            
+            try:
+                # Try to detect original language for fallback
+                original_language = agricultural_fact_checker._detect_query_language(farmer_query)
+            except:
+                original_language = 'english'
             
             fallback_response = f"I apologize, but I encountered an error processing your query. Please try again or contact our support team."
-            if original_language != 'en' and original_language != 'unknown':
-                fallback_response = agricultural_translator.response_to_original_language(
-                    fallback_response, original_language
-                )
+            
+            # Use fact checker's fallback responses if available
+            try:
+                fallback_responses = {
+                    'hindi': "माफ करें, मुझे आपकी क्वेरी प्रोसेस करने में त्रुटि आई है। कृपया दोबारा कोशिश करें या हमारी सहायता टीम से संपर्क करें।",
+                    'hinglish': "Sorry, mujhe aapki query process karne mein error aaya hai. Please dobara try kariye ya hamare support team se contact kariye.",
+                    'punjabi': "ਮਾਫ਼ ਕਰਨਾ, ਮੈਨੂੰ ਤੁਹਾਡੀ ਕਿਊਰੀ ਪ੍ਰੋਸੈਸ ਕਰਨ ਵਿੱਚ ਤਰੁੱਟੀ ਆਈ ਹੈ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ ਜਾਂ ਸਾਡੀ ਸਹਾਇਤਾ ਟੀਮ ਨਾਲ ਸੰਪਰਕ ਕਰੋ।"
+                }
+                if original_language in fallback_responses:
+                    fallback_response = fallback_responses[original_language]
+            except:
+                pass
             
             return {
                 'success': False,
