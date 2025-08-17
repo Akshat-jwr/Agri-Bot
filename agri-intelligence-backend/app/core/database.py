@@ -2,11 +2,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from app.core.config import settings
 
 # Log DB connection URL
+# Log original DB connection URL
 print(f"📦 Database engine created for: {settings.DATABASE_URL}")
 
-# Create async engine
+# Normalize URL to ensure asyncpg driver is used
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+print(f"🔧 Using async DB URL: {db_url}")
+# Create async engine with normalized URL
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    db_url,
     echo=True,
     future=True
 )

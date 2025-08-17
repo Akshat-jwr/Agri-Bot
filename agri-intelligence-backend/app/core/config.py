@@ -1,4 +1,4 @@
-from typing import List
+from typing import List,Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 
@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     SMTP_PORT: int
     EMAIL_USERNAME: str
     EMAIL_PASSWORD: str
+
+    jina_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
+    openweather_api_key: Optional[str] = None
+    agmarknet_api_key: Optional[str] = None
+    imd_api_key: Optional[str] = None
+    isro_api_key: Optional[str] = None
+    google_translate_api_key: Optional[str] = None
+    google_ai_api_key: Optional[str] = None
+    google_search_api_key: Optional[str] = None  # 🆕 Add this too
+    google_search_engine_id: Optional[str] = None  # 🆕 And this
 
     # Configure environment file using pydantic-settings
     model_config = SettingsConfigDict(env_file=".env")

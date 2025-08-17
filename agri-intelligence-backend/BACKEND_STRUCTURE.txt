@@ -1,0 +1,40 @@
+agri-intelligence-backend/
+├── .env
+├── .env.example
+├── .gitignore
+├── README.md
+├── agri_app.db
+├── agri_vectordb/  # Postgres vector DB artifacts
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── core/
+│   │   ├── config.py
+│   │   └── database.py
+│   ├── crud/  # Data access logic
+│   ├── language_processing/  # PDF/text parsing helpers
+│   ├── models/  # ORM models
+│   ├── routes/  # FastAPI routers
+│   ├── schemas/  # Pydantic schemas
+│   ├── services/  # Business logic/services
+│   ├── tests/
+│   │   └── test_real_tools.py
+│   └── tools/
+│       ├── ml_tools/
+       │   ├── __init__.py
+       │   ├── price_prediction.py
+       │   └── real_yield_prediction.py
+       └── api_tools/
+           ├── __init__.py
+           ├── government_apis.py
+           ├── real_market_apis.py
+           └── real_weather_apis.py
+├── data/  # Raw data files
+├── data_ingestion/  # Ingestion scripts
+├── data_ingestion.log
+├── models/  # Saved ML models or pickles
+├── pdf_processing.log
+├── requirements.txt
+├── scripts/
+│   └── setup_vector_db.py
+└── venv/  # Virtual environment
