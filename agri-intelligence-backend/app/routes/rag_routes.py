@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 
 # Import the correct RAG function
-from ..tools.rag_core.rag_orchestrator import process_agricultural_query
+from ..tools.rag_core.simple_rag_orchestrator import process_agricultural_query
 
 # Set up detailed logging
 logging.basicConfig(level=logging.INFO)

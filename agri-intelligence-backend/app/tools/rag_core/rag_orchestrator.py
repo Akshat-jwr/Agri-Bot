@@ -1,8 +1,38 @@
 """
-Main RAG Orchestrator - Central Agricultural Intelligence Coordinator
+RAG Orchestrator - Coordinates all RAG components for agricultural intelligence
+
+This module orchestrates the complete Retrieval-Augmented Generation pipeline for agricultural queries.
+It coordinates the vector database, weather API, yield prediction models, Google Search, language processing,
+and LLM integration to provide comprehensive agricultural intelligence responses.
 
 File: app/tools/rag_core/rag_orchestrator.py
 """
+
+import asyncio
+import logging
+from typing import Dict, List, Optional, Any, Tuple
+from datetime import datetime
+
+try:
+    from app.tools.vector_db.chroma_manager import chroma_manager
+except ImportError:
+    chroma_manager = None
+    
+try:
+    from app.tools.api_tools.real_weather_apis import weather_api
+except ImportError:
+    weather_api = None
+    
+try:
+    from app.tools.models.yield_predictor import yield_predictor
+except ImportError:
+    yield_predictor = None
+    
+from app.tools.llm_tools.gemini_llm import agricultural_llm
+from app.tools.rag_core.google_search_tool import google_search_tool
+from app.language_processing.translator import agricultural_translator
+
+logger = logging.getLogger(__name__)
 
 import asyncio
 import logging
@@ -13,6 +43,7 @@ from .query_classifier import query_classifier, QueryClassification
 from .tool_orchestrator import tool_orchestrator
 from .context_fusion import context_fusion, FusedContext
 from .google_search_tool import google_search_tool
+from ..llm_tools.gemini_llm import gemini_llm
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +66,8 @@ class AgriculturalRAGOrchestrator:
                                  query: str,
                                  farmer_context: Optional[Dict] = None) -> Dict[str, Any]:
         """
-        Main entry point for processing farmer queries
-        Returns comprehensive agricultural intelligence response
+        ENHANCED: Main entry point for multilingual farmer queries with Google Search
+        Returns comprehensive agricultural intelligence response with language support
         """
         start_time = datetime.now()
         self.performance_metrics['total_queries'] += 1
@@ -44,28 +75,58 @@ class AgriculturalRAGOrchestrator:
         logger.info(f"🌾 Processing farmer query: '{query[:50]}...'")
         
         try:
-            # Step 1: Classify the query
-            logger.info("🔍 Step 1: Classifying query...")
-            classification = await query_classifier.classify_query(query, farmer_context)
+            # Step 1: Language Detection & Translation
+            logger.info("🌐 Step 1: Processing language and translation...")
+            english_query, original_language = agricultural_translator.query_to_english(query)
+            logger.info(f"Language: {original_language} → English: {english_query}")
+            
+            # Step 2: Classify the English query
+            logger.info("🔍 Step 2: Classifying query...")
+            classification = await query_classifier.classify_query(english_query, farmer_context)
             
             logger.info(f"✅ Classification: {classification.primary_category} "
                        f"(confidence: {classification.confidence:.2f})")
             
-            # Step 2: Execute tools concurrently
-            logger.info("🔧 Step 2: Executing tools concurrently...")
+            # Step 3: Google Search for latest information
+            logger.info("🔍 Step 3: Searching for latest agricultural information...")
+            search_results = await google_search_tool.search_agricultural_info(
+                query=english_query,
+                location=farmer_context.get('location') if farmer_context else None,
+                num_results=3
+            )
+            
+            # Step 4: Execute tools concurrently
+            logger.info("🔧 Step 4: Executing tools concurrently...")
             tool_results = await tool_orchestrator.orchestrate_tools(classification, farmer_context)
+            
+            # Add search results to tool results
+            tool_results['google_search'] = type('SearchResult', (), {
+                'success': True,
+                'data': search_results,
+                'confidence': 0.8,
+                'processing_time': 0.5,
+                'metadata': {'source': 'google_custom_search'}
+            })()
             
             successful_tools = [name for name, result in tool_results.items() if result.success]
             logger.info(f"✅ Tool execution complete: {len(successful_tools)}/{len(tool_results)} successful")
             
-            # Step 3: Fuse context from all tools
-            logger.info("🔗 Step 3: Fusing context from all sources...")
+            # Step 5: Fuse context from all tools
+            logger.info("🔗 Step 5: Fusing context from all sources...")
             fused_context = await context_fusion.fuse_tool_results(tool_results, classification)
             
-            # Step 4: Generate comprehensive response
-            logger.info("📝 Step 4: Generating farmer response...")
-            response = await self._generate_farmer_response(
-                query, classification, fused_context, tool_results
+            # Step 6: Generate comprehensive response with enhanced context
+            logger.info("📝 Step 6: Generating expert agricultural response...")
+            enhanced_context = {
+                **fused_context.__dict__,
+                'search_results': search_results,
+                'original_query': query,
+                'english_query': english_query,
+                'original_language': original_language
+            }
+            
+            response = await self._generate_multilingual_farmer_response(
+                english_query, classification, enhanced_context, tool_results, original_language
             )
             
             # Calculate processing time
@@ -80,11 +141,17 @@ class AgriculturalRAGOrchestrator:
             return {
                 'success': True,
                 'response': response,
+                'english_response': response if original_language == 'en' else None,
                 'classification': classification,
                 'fused_context': fused_context,
                 'processing_time': processing_time,
                 'tools_used': list(tool_results.keys()),
-                'confidence_score': fused_context.confidence_score
+                'confidence_score': fused_context.confidence_score,
+                'metadata': {
+                    'original_language': original_language,
+                    'english_query': english_query,
+                    'search_results_count': len(search_results)
+                }
             }
             
         except Exception as e:
@@ -104,13 +171,27 @@ class AgriculturalRAGOrchestrator:
                                       fused_context: FusedContext,
                                       tool_results: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Generate comprehensive farmer-friendly response
+        Generate comprehensive farmer-friendly response using Gemini LLM
         """
-        # This is where you'd integrate with Gemini 2.5 Pro or another LLM
-        # For now, we'll generate a structured response
+        logger.info("🤖 Generating intelligent response with Gemini LLM...")
+        
+        # Call Gemini LLM for intelligent main answer
+        main_answer = await gemini_llm.generate_agricultural_response(
+            query=query,
+            classification=classification.__dict__,
+            context_data={
+                'weather_intelligence': fused_context.weather_intelligence,
+                'market_intelligence': fused_context.market_intelligence,
+                'agricultural_data': fused_context.agricultural_data,
+                'government_info': fused_context.government_info,
+                'web_intelligence': fused_context.web_intelligence
+            }
+        )
+        
+        logger.info(f"✅ Generated {len(main_answer)} character LLM response")
         
         response = {
-            'main_answer': await self._generate_main_answer(classification, fused_context),
+            'main_answer': main_answer,  # NOW USING REAL LLM!
             'weather_guidance': self._extract_weather_guidance(fused_context.weather_intelligence),
             'market_advice': self._extract_market_advice(fused_context.market_intelligence),
             'agricultural_recommendations': self._extract_agri_recommendations(fused_context.agricultural_data),
@@ -122,6 +203,86 @@ class AgriculturalRAGOrchestrator:
         }
         
         return response
+
+    async def _generate_multilingual_farmer_response(self, 
+                                                   english_query: str,
+                                                   classification: QueryClassification,
+                                                   enhanced_context: Dict,
+                                                   tool_results: Dict[str, Any],
+                                                   original_language: str) -> Dict[str, Any]:
+        """
+        Generate comprehensive multilingual farmer-friendly response using Gemini LLM
+        """
+        logger.info("🤖 Generating intelligent multilingual response with Gemini LLM...")
+        
+        # Create enhanced context for LLM
+        context_data = {
+            'weather_intelligence': enhanced_context.get('weather_intelligence'),
+            'market_intelligence': enhanced_context.get('market_intelligence'), 
+            'agricultural_data': enhanced_context.get('agricultural_data'),
+            'government_info': enhanced_context.get('government_info'),
+            'web_intelligence': enhanced_context.get('web_intelligence'),
+            'search_results': enhanced_context.get('search_results', [])
+        }
+        
+        # Call Gemini LLM for intelligent main answer in English
+        english_main_answer = await agricultural_llm.generate_agricultural_response(
+            query=english_query,
+            classification=classification.__dict__,
+            context_data=context_data
+        )
+        
+        logger.info(f"✅ Generated {len(english_main_answer)} character LLM response")
+        
+        # Translate main answer to original language if needed
+        main_answer = english_main_answer
+        if original_language != 'en':
+            logger.info(f"🌐 Translating main answer to {original_language}...")
+            main_answer = agricultural_translator.response_to_original_language(
+                english_main_answer, original_language
+            )
+        
+        # Generate other response components (keeping English for now, can be enhanced later)
+        response = {
+            'main_answer': main_answer,  # Multilingual main response
+            'english_main_answer': english_main_answer,  # Keep English version
+            'weather_guidance': self._extract_weather_guidance(enhanced_context.get('weather_intelligence')),
+            'market_advice': self._extract_market_advice(enhanced_context.get('market_intelligence')),
+            'agricultural_recommendations': self._extract_agri_recommendations(enhanced_context.get('agricultural_data')),
+            'government_benefits': self._extract_government_benefits(enhanced_context.get('government_info')),
+            'latest_info': self._extract_search_insights(enhanced_context.get('search_results', [])),
+            'action_items': self._generate_action_items(classification, enhanced_context),
+            'confidence_level': self._interpret_confidence(enhanced_context.get('confidence_score', 0.5)),
+            'data_sources': self._list_enhanced_data_sources(tool_results),
+            'follow_up_questions': self._suggest_follow_ups(classification),
+            'language_info': {
+                'original_language': original_language,
+                'response_language': original_language,
+                'translation_applied': original_language != 'en'
+            }
+        }
+        
+        return response
+
+    def _extract_search_insights(self, search_results: List[Dict]) -> List[Dict]:
+        """Extract key insights from Google Search results"""
+        insights = []
+        for result in search_results[:3]:  # Top 3 results
+            insights.append({
+                'title': result.get('title', ''),
+                'summary': result.get('snippet', '')[:200] + '...',
+                'source': result.get('source', ''),
+                'relevance': result.get('relevance_score', 0.5),
+                'url': result.get('url', '')
+            })
+        return insights
+
+    def _list_enhanced_data_sources(self, tool_results: Dict) -> List[str]:
+        """List all data sources including Google Search"""
+        sources = self._list_data_sources(tool_results)
+        if 'google_search' in tool_results:
+            sources.append('Google Custom Search - Latest Agricultural Information')
+        return sources
 
     async def _generate_main_answer(self, 
                                   classification: QueryClassification,

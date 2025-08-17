@@ -8,7 +8,7 @@ from .query_classifier import query_classifier, QueryClassification
 from .tool_orchestrator import tool_orchestrator
 from .context_fusion import context_fusion
 from .google_search_tool import google_search_tool
-from .rag_orchestrator import rag_orchestrator
+from .simple_rag_orchestrator import simple_rag_orchestrator, process_agricultural_query
 
 __all__ = [
     'query_classifier',

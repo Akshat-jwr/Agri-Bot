@@ -1,6 +1,11 @@
 from typing import List,Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
+import os
+from pathlib import Path
+
+# Get the project root directory
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 class Settings(BaseSettings):
     # App Info
@@ -37,7 +42,11 @@ class Settings(BaseSettings):
     google_search_engine_id: Optional[str] = None  # 🆕 And this
 
     # Configure environment file using pydantic-settings
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(
+        env_file=str(PROJECT_ROOT / ".env"),
+        env_file_encoding='utf-8',
+        case_sensitive=False  # Allow case-insensitive matching
+    )
 
     @property
     def allowed_origins_list(self) -> List[str]:

@@ -35,7 +35,7 @@
     "wheat_irrigated_area_1000_ha": 0.0,
     "rice_irrigated_area_1000_ha": 0.0
   },
-  "training_date": "2025-08-18T00:16:05.508366",
+  "training_date": "2025-08-18T01:35:21.090035",
   "feature_count": 26,
   "model_file": "models/yield_prediction_model.pkl"
 }
