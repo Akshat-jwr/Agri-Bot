@@ -1,0 +1,125 @@
+{
+  "start_time": "2025-08-17T09:00:10.181032",
+  "csv_results": {
+    "total_files": 15,
+    "successful_files": 15,
+    "total_records": 138663,
+    "total_insights": 0,
+    "files": [
+      {
+        "name": "State-wise-fertilizer-data.csv",
+        "success": true,
+        "records": 8677,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "State-wise-Crop-Yield-data.csv",
+        "success": true,
+        "records": 16146,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "landuse-data.csv",
+        "success": true,
+        "records": 16964,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "area-production-yield.csv",
+        "success": true,
+        "records": 16146,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "State-wise-infrastructure-data.csv",
+        "success": true,
+        "records": 9784,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "data.csv",
+        "success": true,
+        "records": 2238,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "soil-type-data.csv",
+        "success": true,
+        "records": 0,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "harvest-price-data.csv",
+        "success": true,
+        "records": 15130,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "Census-data.csv",
+        "success": true,
+        "records": 1850,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "growing-period.csv",
+        "success": true,
+        "records": 0,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "State-wise-irrigation-data.csv",
+        "success": true,
+        "records": 15943,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "normal-rainfall.csv",
+        "success": true,
+        "records": 0,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "monthly-rainfall-data.csv",
+        "success": true,
+        "records": 14527,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "high-yielding-varities-data.csv",
+        "success": true,
+        "records": 10629,
+        "insights": 0,
+        "error": null
+      },
+      {
+        "name": "State-wise-high-yielding-crops.csv",
+        "success": true,
+        "records": 10629,
+        "insights": 0,
+        "error": null
+      }
+    ]
+  },
+  "pdf_results": {
+    "total_files": 0,
+    "successful_files": 0,
+    "total_chunks": 0
+  },
+  "total_processing_time": 150.609812,
+  "success": true,
+  "errors": [],
+  "end_time": "2025-08-17T09:02:40.790844"
+}

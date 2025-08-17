@@ -14,7 +14,7 @@ class UserRead(BaseModel):
     district_name: Optional[str]
     crops_of_interest: List[str]
     is_active: bool
-    is_verified: bool
+    is_verified: bool  # Show verification status
     created_at: datetime
 
     class Config:
