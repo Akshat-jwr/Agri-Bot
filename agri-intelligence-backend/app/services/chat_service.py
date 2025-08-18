@@ -123,6 +123,110 @@ class ChatService:
             logger.error(f"❌ Failed to get session: {e}")
             raise e
     
+    async def get_session_messages(self, db: AsyncSession, session_id: str, user_id: str, 
+                                 limit: int = 50, offset: int = 0) -> List[ChatMessage]:
+        """Get messages for a specific session with pagination"""
+        try:
+            # First verify the session belongs to the user
+            session = await self.get_session(db, session_id, user_id)
+            if not session:
+                raise ValueError("Session not found or access denied")
+            
+            # Get messages with pagination
+            result = await db.execute(
+                select(ChatMessage)
+                .filter(ChatMessage.session_id == session_id)
+                .order_by(ChatMessage.created_at.asc())  # Oldest first for conversation flow
+                .offset(offset)
+                .limit(limit)
+            )
+            messages = result.scalars().all()
+            
+            logger.info(f"📜 Retrieved {len(messages)} messages for session {session_id}")
+            return list(messages)
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get session messages: {e}")
+            raise e
+    
+    async def update_session(self, db: AsyncSession, session_id: str, user_id: str, 
+                           update_data: ChatSessionUpdate) -> Optional[ChatSession]:
+        """
+        Update a chat session (title, status, satisfaction rating, etc.)
+        """
+        try:
+            # First verify the session belongs to the user
+            session = await self.get_session(db, session_id, user_id)
+            if not session:
+                return None
+            
+            # Update fields from update_data
+            update_dict = {}
+            if update_data.title is not None:
+                update_dict['title'] = update_data.title
+            if update_data.is_active is not None:
+                update_dict['is_active'] = update_data.is_active
+            if update_data.satisfaction_rating is not None:
+                update_dict['satisfaction_rating'] = update_data.satisfaction_rating
+            if update_data.language_preference is not None:
+                update_dict['language_preference'] = update_data.language_preference
+            
+            # Always update the timestamp
+            update_dict['updated_at'] = datetime.utcnow()
+            
+            # If ending the session
+            if update_data.is_active is False:
+                update_dict['ended_at'] = datetime.utcnow()
+            
+            # Perform the update
+            await db.execute(
+                update(ChatSession)
+                .where(ChatSession.id == session_id)
+                .values(**update_dict)
+            )
+            await db.commit()
+            
+            # Fetch and return updated session
+            updated_session = await self.get_session(db, session_id, user_id)
+            logger.info(f"✅ Updated session {session_id}")
+            return updated_session
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to update session: {e}")
+            await db.rollback()
+            raise e
+    
+    async def delete_session(self, db: AsyncSession, session_id: str, user_id: str) -> bool:
+        """
+        Delete a chat session and all its messages (CASCADE delete)
+        """
+        try:
+            # First verify the session belongs to the user
+            session = await self.get_session(db, session_id, user_id)
+            if not session:
+                return False
+            
+            # Delete messages first (explicit cleanup)
+            await db.execute(
+                delete(ChatMessage)
+                .where(ChatMessage.session_id == session_id)
+            )
+            
+            # Delete the session
+            await db.execute(
+                delete(ChatSession)
+                .where(ChatSession.id == session_id)
+            )
+            
+            await db.commit()
+            logger.info(f"✅ Deleted session {session_id} and all its messages")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to delete session: {e}")
+            await db.rollback()
+            return False
+    
     async def send_message(self, db: AsyncSession, user_id: str, 
                           message_data: ChatMessageCreate) -> Tuple[ChatMessage, ChatMessage]:
         """
@@ -210,7 +314,7 @@ class ChatService:
             
             return [
                 {
-                    "role": msg.role.value,
+                    "role": msg.role,  # Already a string in database
                     "content": msg.content,
                     "timestamp": msg.created_at.isoformat()
                 }

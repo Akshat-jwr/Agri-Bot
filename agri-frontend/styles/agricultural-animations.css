@@ -1,0 +1,193 @@
+/* Enhanced Agricultural Theme with Smooth Animations */
+
+/* Smooth transitions for all interactive elements */
+* {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Beautiful scrollbar styling */
+.scroll-area-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scroll-area-viewport::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+  border-radius: 4px;
+}
+
+.scroll-area-viewport::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, #10b981, #059669);
+  border-radius: 4px;
+  border: 1px solid hsl(var(--background));
+}
+
+.scroll-area-viewport::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, #059669, #047857);
+}
+
+/* Enhanced card hover effects */
+.card {
+  backdrop-filter: blur(8px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.1), 0 10px 10px -5px rgba(16, 185, 129, 0.04);
+}
+
+/* Animated gradients for backgrounds */
+.agricultural-gradient {
+  background: linear-gradient(135deg, 
+    rgba(16, 185, 129, 0.02) 0%,
+    rgba(5, 150, 105, 0.01) 50%,
+    rgba(4, 120, 87, 0.02) 100%);
+  animation: gradient-shift 10s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Enhanced focus states for better accessibility */
+.focus-ring:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1), 0 0 0 1px rgba(16, 185, 129, 0.3);
+}
+
+/* Smooth fade-in animation for messages */
+.message-enter {
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+}
+
+.message-enter-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enhanced button interactions */
+.button-primary {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.button-primary:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+}
+
+.button-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3);
+}
+
+/* Pulsing animation for active states */
+.pulse-green {
+  animation: pulse-green 2s infinite;
+}
+
+@keyframes pulse-green {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+}
+
+/* Smooth loading animations */
+.loading-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(16, 185, 129, 0.05) 0%,
+    rgba(16, 185, 129, 0.1) 50%,
+    rgba(16, 185, 129, 0.05) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Enhanced spacing and typography */
+.agricultural-spacing {
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+}
+
+/* Beautiful prose enhancements */
+.prose-agricultural h1 {
+  background: linear-gradient(135deg, #059669, #10b981);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 700;
+}
+
+.prose-agricultural h2 {
+  color: #047857;
+  border-bottom: 2px solid rgba(16, 185, 129, 0.2);
+  padding-bottom: 0.5rem;
+}
+
+.prose-agricultural blockquote {
+  border-left: 4px solid #10b981;
+  background: linear-gradient(to right, rgba(16, 185, 129, 0.05), transparent);
+  margin: 1rem 0;
+  padding: 1rem 1.5rem;
+  border-radius: 0 8px 8px 0;
+}
+
+/* Responsive enhancements */
+@media (max-width: 768px) {
+  .agricultural-gradient {
+    background-size: 300% 300%;
+  }
+  
+  .card:hover {
+    transform: none;
+  }
+  
+  .button-primary:hover {
+    transform: none;
+  }
+}
+
+/* Dark mode enhancements */
+@media (prefers-color-scheme: dark) {
+  .agricultural-gradient {
+    background: linear-gradient(135deg, 
+      rgba(16, 185, 129, 0.03) 0%,
+      rgba(5, 150, 105, 0.02) 50%,
+      rgba(4, 120, 87, 0.03) 100%);
+  }
+  
+  .prose-agricultural h1 {
+    background: linear-gradient(135deg, #10b981, #34d399);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+/* Print styles for reports */
+@media print {
+  .agricultural-gradient,
+  .card,
+  .button-primary {
+    background: white !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+}

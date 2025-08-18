@@ -28,3 +28,20 @@ async def get_current_user(
         raise credentials_exception
     
     return user
+
+async def get_current_user_from_token(token: str, db: AsyncSession) -> User:
+    """Get current authenticated user from direct token (for EventSource)"""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+    )
+    
+    email = verify_token(token)
+    if email is None:
+        raise credentials_exception
+    
+    user = await get_user_by_email(db, email)
+    if user is None:
+        raise credentials_exception
+    
+    return user

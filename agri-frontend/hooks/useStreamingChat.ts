@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
+import { apiService } from '../lib/api'
 
 interface StreamingMessage {
   type: string
@@ -14,6 +15,11 @@ interface StreamingMessage {
   chunk?: string
   query?: string
   response_id?: string
+  confidence?: number
+  validation_status?: string
+  language?: string
+  sources_used?: string[]
+  fact_checker_used?: boolean
 }
 
 interface Source {
@@ -36,6 +42,12 @@ interface WebSearchQuery {
   results?: number
 }
 
+interface FactCheckStep {
+  step: string
+  status: string
+  completed?: boolean
+}
+
 interface StreamingState {
   isStreaming: boolean
   progress: number
@@ -46,7 +58,14 @@ interface StreamingState {
   webSearchQueries: WebSearchQuery[]
   streamingText: string
   factCheckStatus: string
+  factCheckSteps: FactCheckStep[]
+  factCheckCorrections: string
   error: string | null
+  confidence: number
+  validationStatus: string
+  language: string
+  sourcesUsed: string[]
+  factCheckerUsed: boolean
 }
 
 export function useStreamingChat() {
@@ -60,7 +79,14 @@ export function useStreamingChat() {
     webSearchQueries: [],
     streamingText: '',
     factCheckStatus: '',
-    error: null
+    factCheckSteps: [],
+    factCheckCorrections: '',
+    error: null,
+    confidence: 0,
+    validationStatus: '',
+    language: '',
+    sourcesUsed: [],
+    factCheckerUsed: false
   })
 
   const eventSourceRef = useRef<EventSource | null>(null)
@@ -78,19 +104,18 @@ export function useStreamingChat() {
         webSearchQueries: [],
         streamingText: '',
         factCheckStatus: '',
-        error: null
+        factCheckSteps: [],
+        factCheckCorrections: '',
+        error: null,
+        confidence: 0,
+        validationStatus: '',
+        language: '',
+        sourcesUsed: [],
+        factCheckerUsed: false
       })
 
-      // Create EventSource for streaming
-      const eventSource = new EventSource(
-        `http://localhost:8000/api/v1/streaming/chat?session_id=${sessionId}&content=${encodeURIComponent(content)}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        } as any
-      )
-
+      // Create EventSource using the API service
+      const eventSource = apiService.createStreamingEventSource(sessionId, content)
       eventSourceRef.current = eventSource
 
       eventSource.onmessage = (event) => {
@@ -119,6 +144,11 @@ export function useStreamingChat() {
                 newState.progress = data.progress || prev.progress
                 break
 
+              case 'ai_step':
+                // Handle AI processing steps
+                newState.phaseTitle = data.step || newState.phaseTitle
+                break
+
               case 'reasoning_step':
                 if (data.step && typeof data.index === 'number') {
                   const newSteps = [...prev.reasoningSteps]
@@ -128,6 +158,19 @@ export function useStreamingChat() {
                     completed: false
                   }
                   newState.reasoningSteps = newSteps
+                }
+                break
+
+              case 'fact_check_step':
+                if (data.step && data.status) {
+                  newState.factCheckSteps = [
+                    ...prev.factCheckSteps,
+                    {
+                      step: data.step,
+                      status: data.status,
+                      completed: data.status === 'completed'
+                    }
+                  ]
                 }
                 break
 
@@ -148,19 +191,31 @@ export function useStreamingChat() {
                 break
 
               case 'response_chunk':
+                // Accumulate chunks to build the full response
                 newState.streamingText = data.chunk || ''
                 newState.progress = data.progress || prev.progress
                 break
 
               case 'fact_check_result':
                 newState.factCheckStatus = data.status || ''
+                newState.confidence = data.confidence || 0
                 break
 
               case 'completion':
                 newState.isStreaming = false
                 newState.progress = 100
-                // Mark all reasoning steps as completed
+                newState.confidence = data.confidence || prev.confidence
+                newState.validationStatus = data.validation_status || ''
+                newState.language = data.language || ''
+                newState.sourcesUsed = data.sources_used || []
+                newState.factCheckerUsed = data.fact_checker_used || false
+                
+                // Mark all steps as completed
                 newState.reasoningSteps = prev.reasoningSteps.map(step => ({
+                  ...step,
+                  completed: true
+                }))
+                newState.factCheckSteps = prev.factCheckSteps.map(step => ({
                   ...step,
                   completed: true
                 }))
@@ -176,6 +231,11 @@ export function useStreamingChat() {
           })
         } catch (error) {
           console.error('Error parsing streaming data:', error)
+          setStreamingState(prev => ({
+            ...prev,
+            error: 'Failed to parse response data',
+            isStreaming: false
+          }))
         }
       }
 
@@ -187,6 +247,10 @@ export function useStreamingChat() {
           isStreaming: false
         }))
         eventSource.close()
+      }
+
+      eventSource.onopen = () => {
+        console.log('EventSource connection opened')
       }
 
     } catch (error) {

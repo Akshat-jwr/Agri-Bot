@@ -25,8 +25,8 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.schemas.chat import (
     ChatSessionCreate, ChatSessionResponse, ChatSessionUpdate, ChatSessionListResponse,
-    ChatMessageCreate, ChatMessageResponse, ChatConversationResponse,
-    ChatMessageFeedback, ChatSuccessResponse, ChatAnalytics
+    ChatMessageCreate, ChatMessageResponse,
+    ChatSuccessResponse
 )
 from app.services.chat_service import chat_service
 
@@ -135,7 +135,7 @@ async def get_chat_session(
     Retrieves a specific chat session. User must own the session.
     """
     try:
-        session = chat_service.get_session(
+        session = await chat_service.get_session(
             db=db,
             session_id=session_id,
             user_id=current_user.id
@@ -171,7 +171,7 @@ async def update_chat_session(
     Updates session details like title, status, or satisfaction rating.
     """
     try:
-        session = chat_service.update_session(
+        session = await chat_service.update_session(
             db=db,
             session_id=session_id,
             user_id=current_user.id,
@@ -207,7 +207,7 @@ async def delete_chat_session(
     Deletes a chat session and all its messages. Cannot be undone.
     """
     try:
-        success = chat_service.delete_session(
+        success = await chat_service.delete_session(
             db=db,
             session_id=session_id,
             user_id=current_user.id
@@ -310,10 +310,10 @@ async def get_session_messages(
                 detail="Invalid pagination parameters"
             )
         
-        messages = chat_service.get_session_messages(
+        messages = await chat_service.get_session_messages(
             db=db,
             session_id=session_id,
-            user_id=current_user.id,
+            user_id=str(current_user.id),
             limit=limit,
             offset=offset
         )
@@ -329,125 +329,7 @@ async def get_session_messages(
             detail="Failed to retrieve messages"
         )
 
-@router.get("/sessions/{session_id}/conversation", response_model=ChatConversationResponse)
-async def get_full_conversation(
-    session_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    🗨️ GET FULL CONVERSATION
-    
-    Gets complete conversation with session details and all messages.
-    """
-    try:
-        # Get session
-        session = chat_service.get_session(
-            db=db,
-            session_id=session_id,
-            user_id=current_user.id
-        )
-        
-        if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Chat session not found"
-            )
-        
-        # Get all messages
-        messages = chat_service.get_session_messages(
-            db=db,
-            session_id=session_id,
-            user_id=current_user.id,
-            limit=1000  # Get all messages
-        )
-        
-        return ChatConversationResponse(
-            session=session,
-            messages=messages
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to get conversation for session {session_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve conversation"
-        )
-
-@router.post("/messages/{message_id}/feedback", response_model=ChatSuccessResponse)
-async def add_message_feedback(
-    message_id: int,
-    feedback_data: ChatMessageFeedback,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    👍 ADD MESSAGE FEEDBACK
-    
-    Allows users to provide thumbs up/down feedback on AI responses.
-    """
-    try:
-        success = chat_service.add_message_feedback(
-            db=db,
-            message_id=message_id,
-            user_id=current_user.id,
-            feedback=feedback_data.feedback
-        )
-        
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Message not found or access denied"
-            )
-        
-        return ChatSuccessResponse(
-            success=True,
-            message=f"Feedback '{feedback_data.feedback}' added successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to add feedback to message {message_id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to add feedback"
-        )
-
-# 📊 ANALYTICS ENDPOINTS
-
-@router.get("/analytics", response_model=Dict[str, Any])
-async def get_user_chat_analytics(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    📊 GET CHAT ANALYTICS
-    
-    Provides analytics about user's chat usage and patterns.
-    """
-    try:
-        analytics = chat_service.get_user_chat_analytics(
-            db=db,
-            user_id=current_user.id
-        )
-        
-        return {
-            "user_id": current_user.id,
-            "analytics": analytics,
-            "generated_at": "2025-01-18T00:00:00Z"
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to get analytics for user {current_user.id}: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve analytics"
-        )
-
-# 🔧 BACKGROUND TASKS
+#  BACKGROUND TASKS
 
 async def log_chat_analytics(session_id: str, user_id: int, message_content: str):
     """Background task for logging chat analytics"""
