@@ -34,6 +34,6 @@ async def get_db() -> AsyncSession:
 
 # Initialize database
 async def init_db():
-    from app.models.base import Base
+    from app.models import Base
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

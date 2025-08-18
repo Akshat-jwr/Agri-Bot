@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.routes import rag_routes, auth, users, health
+from app.routes import rag_routes, auth, users, health, chat
 
 # App startup/shutdown
 @asynccontextmanager
@@ -51,7 +51,13 @@ app = FastAPI(
     - Intelligent query classification and routing
     - Real-time weather and market data integration
     
-    **👤 User Management:**
+    **� Advanced Chat System:**
+    - Session-based conversations with AI
+    - Multi-language support for all Indian languages
+    - Conversation history and context awareness
+    - Message feedback and analytics
+    
+    **�👤 User Management:**
     - Profile management with location data
     - Crop preferences and farming details
     - Personalized recommendations
@@ -78,9 +84,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers - Authentication, Users, and RAG system
+# Include routers - Authentication, Users, Chat, and RAG system
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["🔐 Authentication"])
 app.include_router(users.router, prefix=f"{settings.API_V1_PREFIX}/users", tags=["👤 Users"])  
+app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}", tags=["💬 Agricultural Chat"])
 app.include_router(health.router, prefix=f"{settings.API_V1_PREFIX}/health", tags=["🏥 Health"])
 app.include_router(rag_routes.router, prefix=f"{settings.API_V1_PREFIX}", tags=["🌾 Agricultural Intelligence"])
 

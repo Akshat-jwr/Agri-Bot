@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Boolean, JSON
+from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
 class User(BaseModel):
@@ -17,3 +18,6 @@ class User(BaseModel):
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     verification_token = Column(String(255), nullable=True)
+    
+    # Relationships
+    chat_sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
