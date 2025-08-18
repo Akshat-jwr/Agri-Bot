@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.routes import rag_routes, auth, users, health, chat
+from app.routes import rag_routes, auth, users, health, chat, streaming
 
 # App startup/shutdown
 @asynccontextmanager
@@ -88,6 +88,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["🔐 Authentication"])
 app.include_router(users.router, prefix=f"{settings.API_V1_PREFIX}/users", tags=["👤 Users"])  
 app.include_router(chat.router, prefix=f"{settings.API_V1_PREFIX}", tags=["💬 Agricultural Chat"])
+app.include_router(streaming.router, prefix=f"{settings.API_V1_PREFIX}", tags=["🌊 Live Streaming Chat"])
 app.include_router(health.router, prefix=f"{settings.API_V1_PREFIX}/health", tags=["🏥 Health"])
 app.include_router(rag_routes.router, prefix=f"{settings.API_V1_PREFIX}", tags=["🌾 Agricultural Intelligence"])
 

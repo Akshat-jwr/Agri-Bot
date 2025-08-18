@@ -1,0 +1,76 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* Updated color tokens to match agricultural design brief with olive green primary and golden yellow accent */
+    --background: 0 0% 100%; /* White background for clean readability */
+    --foreground: 240 10% 3.9%; /* Slate gray for primary text */
+    --card: 0 0% 100%; /* White card backgrounds */
+    --card-foreground: 240 10% 3.9%; /* Text on cards */
+    --popover: 0 0% 100%; /* White popover background for chat */
+    --popover-foreground: 240 10% 3.9%; /* Text in popovers */
+    --primary: 142.1 76.2% 36.3%; /* Olive green for primary actions */
+    --primary-foreground: 355.7 100% 97.3%; /* White text on primary buttons */
+    --secondary: 210 40% 96%; /* Light gray for secondary */
+    --secondary-foreground: 222.2 84% 4.9%; /* Text on secondary elements */
+    --muted: 210 40% 96%; /* Light gray for muted backgrounds */
+    --muted-foreground: 215.4 16.3% 46.9%; /* Muted text */
+    --accent: 47.9 95.8% 53.1%; /* Golden yellow accent */
+    --accent-foreground: 26 83.3% 14.1%; /* Text on accent elements */
+    --destructive: 0 84.2% 60.2%; /* Orange-red for errors */
+    --destructive-foreground: 0 0% 98%; /* White text on error messages */
+    --border: 214.3 31.8% 91.4%; /* Light border for separation */
+    --input: 214.3 31.8% 91.4%; /* Light input borders */
+    --ring: 142.1 76.2% 36.3%; /* Olive green focus ring */
+    --radius: 0.5rem; /* Softer rounded corners */
+    --sidebar-background: 0 0% 98%; /* Light gray sidebar */
+    --sidebar-foreground: 240 5.3% 26.1%; /* Sidebar text */
+    --sidebar-primary: 142.1 76.2% 36.3%; /* Olive green in sidebar */
+    --sidebar-primary-foreground: 0 0% 98%; /* White text on primary sidebar */
+    --sidebar-accent: 47.9 95.8% 53.1%; /* Golden yellow sidebar accent */
+    --sidebar-accent-foreground: 240 5.9% 10%; /* Text on sidebar accents */
+    --sidebar-border: 214.3 31.8% 91.4%; /* Sidebar borders */
+    --sidebar-ring: 142.1 76.2% 36.3%; /* Sidebar focus ring */
+  }
+
+  .dark {
+    /* Updated dark mode tokens to maintain agricultural theme with proper contrast */
+    --background: 240 10% 3.9%; /* Dark background */
+    --foreground: 0 0% 98%; /* Light text */
+    --card: 240 10% 3.9%; /* Dark card background */
+    --card-foreground: 0 0% 98%; /* Light text on cards */
+    --popover: 240 10% 3.9%; /* Dark popover */
+    --popover-foreground: 0 0% 98%; /* Light text in popovers */
+    --primary: 142.1 70.6% 45.3%; /* Brighter olive green for dark mode */
+    --primary-foreground: 144.9 80.4% 10%; /* Dark text on primary */
+    --secondary: 240 3.7% 15.9%; /* Dark secondary */
+    --secondary-foreground: 0 0% 98%; /* Light text on secondary */
+    --muted: 240 3.7% 15.9%; /* Dark muted background */
+    --muted-foreground: 240 5% 64.9%; /* Muted text */
+    --accent: 47.9 95.8% 53.1%; /* Bright golden accent */
+    --accent-foreground: 26 83.3% 14.1%; /* Dark text on accent */
+    --destructive: 0 62.8% 30.6%; /* Dark red */
+    --destructive-foreground: 0 0% 98%; /* Light text on error */
+    --border: 240 3.7% 15.9%; /* Dark borders */
+    --input: 240 3.7% 15.9%; /* Dark input borders */
+    --ring: 142.4 71.8% 29.2%; /* Dark olive focus ring */
+    --sidebar-background: 240 5.9% 10%; /* Dark sidebar */
+    --sidebar-foreground: 240 4.8% 95.9%; /* Light sidebar text */
+    --sidebar-primary: 142.1 70.6% 45.3%; /* Bright olive in sidebar */
+    --sidebar-primary-foreground: 144.9 80.4% 10%; /* Dark text on primary sidebar */
+    --sidebar-accent: 47.9 95.8% 53.1%; /* Bright golden sidebar accent */
+    --sidebar-accent-foreground: 26 83.3% 14.1%; /* Dark text on sidebar accents */
+    --sidebar-border: 240 3.7% 15.9%; /* Dark sidebar borders */
+    --sidebar-ring: 142.4 71.8% 29.2%; /* Dark olive sidebar focus ring */
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
