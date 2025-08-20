@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 
 # Import the correct RAG function
-from ..tools.rag_core.simple_rag_orchestrator import process_agricultural_query
+from ..tools.rag_core.rag_orchestrator import process_agricultural_query
 
 # Set up detailed logging
 logging.basicConfig(level=logging.INFO)
@@ -60,39 +60,43 @@ async def ask_agricultural_advisor(
         
         # Process query through RAG system with detailed logging
         logger.info("🔄 Starting RAG processing...")
-        result = await process_agricultural_query(farmer_query.query)
+        result = await process_agricultural_query(
+            farmer_query.query,
+            farmer_context=farmer_query.farmer_context
+        )
         
         processing_time = time.time() - start_time
         logger.info(f"⏱️ Query processed in {processing_time:.2f} seconds")
-        logger.info(f"🎯 Classification: {result.get('category', 'unknown')}")
-        logger.info(f"💯 Confidence: {result.get('confidence', 0):.2f}")
-        
+        classification = result.get('classification')
+        if classification:
+            primary_cat = getattr(classification, 'primary_category', None) or classification.get('primary_category', 'unknown') if isinstance(classification, dict) else 'unknown'
+            confidence = getattr(classification, 'confidence', None) or classification.get('confidence', 0.0) if isinstance(classification, dict) else 0.0
+        else:
+            primary_cat, confidence = 'unknown', 0.0
+        logger.info(f"🎯 Classification: {primary_cat}")
+        logger.info(f"💯 Confidence: {confidence:.2f}")
+
         if result and 'response' in result:
-            # Schedule background tasks for analytics
             background_tasks.add_task(
                 log_query_analytics,
                 farmer_query.query,
-                result.get('category', 'unknown'),
+                primary_cat,
                 processing_time
             )
-            
+            normalized_response = result['response'] if isinstance(result['response'], dict) else {'main_answer': result['response']}
             return QueryResponse(
                 success=True,
-                response=result,
+                response=normalized_response,
                 processing_time=processing_time,
-                confidence_score=result.get('confidence', 0.0),
+                confidence_score=confidence,
                 tools_used=result.get('tools_used', []),
-                classification={
-                    'primary_category': result.get('category', 'unknown'),
-                    'confidence': result.get('confidence', 0.0)
-                }
+                classification={'primary_category': primary_cat, 'confidence': confidence}
             )
-        else:
-            logger.error(f"❌ RAG processing failed: {result}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Query processing failed: No valid response generated"
-            )
+        logger.error(f"❌ RAG processing failed: {result}")
+        raise HTTPException(
+            status_code=500,
+            detail="Query processing failed: No valid response generated"
+        )
             
     except Exception as e:
         processing_time = time.time() - start_time

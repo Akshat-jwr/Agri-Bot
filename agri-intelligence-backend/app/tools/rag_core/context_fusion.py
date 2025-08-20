@@ -81,6 +81,9 @@ class AgriculturalContextFusion:
             data_freshness=data_freshness,
             synthesis_summary=synthesis_summary
         )
+        
+    # (Unreachable) placeholder to ensure code never returns dict
+    # logger.debug("FusedContext constructed: %s", type(result))
 
     def _extract_weather_intelligence(self, tool_results: Dict[str, ToolResult]) -> Dict[str, Any]:
         """Extract and structure weather-related intelligence"""
@@ -175,10 +178,15 @@ class AgriculturalContextFusion:
         
         if 'google_search' in tool_results and tool_results['google_search'].success:
             data = tool_results['google_search'].data
+            # data may be dict (expected) or list (old path). Normalize.
+            if isinstance(data, list):
+                web_results = data
+            else:
+                web_results = data.get('web_results', []) if isinstance(data, dict) else []
             web_data = {
-                'latest_news': data.get('web_results', []),
-                'trending_topics': self._identify_trends(data.get('web_results', [])),
-                'external_resources': self._categorize_web_sources(data.get('web_results', []))
+                'latest_news': web_results,
+                'trending_topics': self._identify_trends(web_results),
+                'external_resources': self._categorize_web_sources(web_results)
             }
         
         return web_data

@@ -10,6 +10,7 @@ File: app/tools/rag_core/rag_orchestrator.py
 
 import asyncio
 import logging
+import traceback
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 
@@ -43,7 +44,6 @@ from .query_classifier import query_classifier, QueryClassification
 from .tool_orchestrator import tool_orchestrator
 from .context_fusion import context_fusion, FusedContext
 from .google_search_tool import google_search_tool
-from ..llm_tools.gemini_llm import gemini_llm
 
 logger = logging.getLogger(__name__)
 
@@ -114,11 +114,25 @@ class AgriculturalRAGOrchestrator:
             # Step 5: Fuse context from all tools
             logger.info("🔗 Step 5: Fusing context from all sources...")
             fused_context = await context_fusion.fuse_tool_results(tool_results, classification)
+            logger.info(f"Fused context raw type: {type(fused_context)}")
+            # Defensive: some legacy paths may return a dict instead of FusedContext
+            if isinstance(fused_context, dict):  # normalize
+                from types import SimpleNamespace
+                fused_context = SimpleNamespace(**fused_context)  # minimal attribute access support
+                logger.warning("Normalized dict fused_context to SimpleNamespace")
             
             # Step 6: Generate comprehensive response with enhanced context
             logger.info("📝 Step 6: Generating expert agricultural response...")
+            # Build enhanced context robustly (fallback to getattr with default empty dict)
             enhanced_context = {
-                **fused_context.__dict__,
+                'weather_intelligence': getattr(fused_context, 'weather_intelligence', {}),
+                'market_intelligence': getattr(fused_context, 'market_intelligence', {}),
+                'agricultural_data': getattr(fused_context, 'agricultural_data', {}),
+                'government_info': getattr(fused_context, 'government_info', {}),
+                'web_intelligence': getattr(fused_context, 'web_intelligence', {}),
+                'confidence_score': getattr(fused_context, 'confidence_score', 0.5),
+                'data_freshness': getattr(fused_context, 'data_freshness', 'standard'),
+                'synthesis_summary': getattr(fused_context, 'synthesis_summary', ''),
                 'search_results': search_results,
                 'original_query': query,
                 'english_query': english_query,
@@ -146,7 +160,7 @@ class AgriculturalRAGOrchestrator:
                 'fused_context': fused_context,
                 'processing_time': processing_time,
                 'tools_used': list(tool_results.keys()),
-                'confidence_score': fused_context.confidence_score,
+                'confidence_score': getattr(fused_context, 'confidence_score', 0.5),
                 'metadata': {
                     'original_language': original_language,
                     'english_query': english_query,
@@ -156,13 +170,21 @@ class AgriculturalRAGOrchestrator:
             
         except Exception as e:
             processing_time = (datetime.now() - start_time).total_seconds()
-            logger.error(f"❌ Query processing failed: {e}")
+            logger.error(f"❌ Query processing failed: {e}\n{traceback.format_exc()}")
+            # Attempt to extract tool result names if available
+            debug_tools = []
+            try:
+                if 'tool_results' in locals():
+                    debug_tools = list(tool_results.keys())
+            except Exception:
+                pass
             
             return {
                 'success': False,
                 'error': str(e),
                 'processing_time': processing_time,
-                'fallback_response': self._generate_fallback_response(query)
+                'fallback_response': self._generate_fallback_response(query),
+                'debug_tools': debug_tools
             }
 
     async def _generate_farmer_response(self, 
@@ -176,7 +198,7 @@ class AgriculturalRAGOrchestrator:
         logger.info("🤖 Generating intelligent response with Gemini LLM...")
         
         # Call Gemini LLM for intelligent main answer
-        main_answer = await gemini_llm.generate_agricultural_response(
+        main_answer = await agricultural_llm.generate_agricultural_response(
             query=query,
             classification=classification.__dict__,
             context_data={
@@ -463,19 +485,25 @@ class AgriculturalRAGOrchestrator:
 
     def _generate_action_items(self, classification: QueryClassification, context: FusedContext) -> List[str]:
         actions = []
-        
+
+        # Support dict contexts (enhanced_context) as well as FusedContext instances
+        def g(ctx, key):
+            if isinstance(ctx, dict):
+                return ctx.get(key, {})
+            return getattr(ctx, key, {})
+
         if classification.urgency == 'high':
             actions.append("⚡ Immediate action required - review recommendations carefully")
-        
-        if context.weather_intelligence.get('risk_alerts'):
+
+        if g(context, 'weather_intelligence').get('risk_alerts'):
             actions.append("🌤️ Check weather updates daily")
-        
-        if context.market_intelligence.get('current_prices'):
+
+        if g(context, 'market_intelligence').get('current_prices'):
             actions.append("💰 Monitor market prices for optimal selling time")
-        
-        if context.government_info.get('eligible_schemes'):
+
+        if g(context, 'government_info').get('eligible_schemes'):
             actions.append("🏛️ Apply for eligible government schemes")
-        
+
         return actions if actions else ["📋 Review recommendations and plan accordingly"]
 
     def _interpret_confidence(self, confidence_score: float) -> str:

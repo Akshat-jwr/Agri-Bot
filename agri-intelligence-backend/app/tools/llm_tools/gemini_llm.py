@@ -224,6 +224,8 @@ Always provide:
             'pest_disease_management': ['semantic_search', 'real_weather_apis', 'google_search'],
             'yield_prediction': ['real_yield_prediction', 'sql_queries', 'real_weather_apis', 'semantic_search'],
             'market_price_forecasting': ['real_market_apis', 'sql_queries', 'google_search'],
+            # Include weather to let price advice reflect short-term climatic impacts
+            'market_price_forecasting': ['real_market_apis', 'real_weather_apis', 'sql_queries', 'google_search'],
             'soil_health': ['semantic_search', 'sql_queries', 'real_yield_prediction'],
             'irrigation_planning': ['real_weather_apis', 'semantic_search', 'sql_queries'],
             'government_schemes': ['government_apis', 'google_search', 'semantic_search'],

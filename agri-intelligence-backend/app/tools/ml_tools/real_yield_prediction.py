@@ -15,12 +15,17 @@ import logging
 from datetime import datetime
 import os
 import json
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class ProductionYieldPredictionModel:
     def __init__(self, db_url: str = None, model_dir: str = "models"):
-        self.db_url = db_url or os.getenv('DATABASE_URL', 'postgresql://postgres@localhost:5433/agri_db')
+        self.db_url = db_url or os.getenv('DATABASE_URL')
+        # Use settings for reliable .env loading
+        self.db_url = db_url or getattr(settings, 'DATABASE_URL', None)
+        if not self.db_url:
+            raise ValueError("DATABASE_URL not configured in .env; required for yield model.")
         self.model_dir = model_dir
         self.model_path = os.path.join(model_dir, 'yield_prediction_model.pkl')
         self.metadata_path = os.path.join(model_dir, 'model_metadata.json')
@@ -66,6 +71,15 @@ class ProductionYieldPredictionModel:
                 
         except Exception as e:
             logger.error(f"❌ Failed to load pre-trained model: {e}")
+            # Auto-clean potentially incompatible/corrupted artifacts so fresh training can proceed
+            try:
+                if os.path.exists(self.model_path):
+                    os.remove(self.model_path)
+                if os.path.exists(self.metadata_path):
+                    os.remove(self.metadata_path)
+                logger.warning("🧹 Removed corrupted/legacy model artifacts; will require retraining.")
+            except Exception as cleanup_err:
+                logger.warning(f"Could not remove corrupted model files: {cleanup_err}")
             self.is_loaded = False
             return False
 

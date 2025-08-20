@@ -97,7 +97,15 @@ class ApiService {
       method: 'POST',
       body: formData
     })
-
+    if (response.status === 403) {
+      // Unverified email path – surface special error so UI can prompt resend
+      let detail = 'Email not verified.'
+      try {
+        const json = await response.json()
+        detail = json.detail || detail
+      } catch {/* ignore */}
+      throw new ApiError(403, detail)
+    }
     const data = await this.handleResponse<LoginResponse>(response)
     if (typeof window !== 'undefined') {
       localStorage.setItem('auth_token', data.access_token)
@@ -112,6 +120,18 @@ class ApiService {
       body: JSON.stringify({ email, password })
     })
 
+    return this.handleResponse<ApiResponse>(response)
+  }
+
+  async verifyEmail(token: string): Promise<ApiResponse> {
+    const response = await fetch(`${API_BASE_URL}/auth/verify/${encodeURIComponent(token)}`)
+    return this.handleResponse<ApiResponse>(response)
+  }
+
+  async resendVerification(email: string): Promise<ApiResponse> {
+    const response = await fetch(`${API_BASE_URL}/auth/resend-verification?email=${encodeURIComponent(email)}`, {
+      method: 'POST'
+    })
     return this.handleResponse<ApiResponse>(response)
   }
 

@@ -70,16 +70,15 @@ class EmailService:
             # Send email
             if settings.EMAIL_USERNAME and settings.EMAIL_PASSWORD:
                 await EmailService._send_email(email, subject, html_body, text_body)
-                logging.info(f"Verification email sent to {email}")
+                logging.info(f"📧 Verification email dispatched to {email}")
             else:
                 # Development mode - just log the verification URL
-                logging.info(f"📧 VERIFICATION EMAIL (dev mode) for {email}")
-                logging.info(f"🔗 Verification URL: {verification_url}")
-                print(f"\n📧 VERIFICATION EMAIL for {email}")
-                print(f"🔗 Click to verify: {verification_url}\n")
+                logging.warning("[email] SMTP credentials not set; running in dev logging mode")
+                logging.info(f"[email.dev] To: {email} :: {verification_url}")
+                print(f"\n--- DEV VERIFICATION EMAIL ---\nTo: {email}\nLink: {verification_url}\n------------------------------\n")
                 
         except Exception as e:
-            logging.error(f"Failed to send verification email to {email}: {e}")
+            logging.error(f"❌ Failed to send verification email to {email}: {e}")
             # Don't raise exception - registration should still succeed
     
     @staticmethod
@@ -100,9 +99,14 @@ class EmailService:
             msg.attach(html_part)
             
             # Send email
-            server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
+            smtp_server = str(settings.SMTP_SERVER).strip('"').strip()
+            smtp_port = int(settings.SMTP_PORT)
+            username = str(settings.EMAIL_USERNAME).strip('"').strip()
+            password = str(settings.EMAIL_PASSWORD).strip('"').strip()
+
+            server = smtplib.SMTP(smtp_server, smtp_port, timeout=20)
             server.starttls()
-            server.login(settings.EMAIL_USERNAME, settings.EMAIL_PASSWORD)
+            server.login(username, password)
             server.send_message(msg)
             server.quit()
             

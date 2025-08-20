@@ -26,10 +26,9 @@ def test_streaming_endpoint():
         "Accept": "text/event-stream"
     }
     
-    data = {
-        "session_id": "demo_session_123",
-        "content": "Mere chawal ke khet me keede lag gaye hai kya karu?"
-    }
+    session_id = os.environ.get("TEST_SESSION_ID", "demo_session_123")
+    query = os.environ.get("TEST_QUERY", "Mere chawal ke khet me keede lag gaye hai kya karu?")
+    data = {"session_id": session_id, "content": query}
     
     print("🌊 Testing streaming chat endpoint...")
     print(f"📤 Message: {data['content']}")
@@ -72,10 +71,29 @@ def test_streaming_endpoint():
                             elif event_type == 'web_search_query':
                                 print(f"🔍 Searching: {event_data.get('query', '')}")
                             
+                            elif event_type == 'thinking':
+                                phase = event_data.get('phase')
+                                title = event_data.get('title','')
+                                if phase == 'google_search':
+                                    results = event_data.get('results', [])
+                                    print(f"🔎 Web results ({len(results)} shown): " + ", ".join(r.get('title','')[:40] for r in results[:3]))
+                                elif phase == 'tool_execution':
+                                    print(f"🧪 Tools: {event_data.get('apis', [])}")
+                                elif phase == 'context_fusion':
+                                    print(f"🌀 Fusing keys: {event_data.get('keys', [])[:8]}")
+                                elif phase == 'draft_generation':
+                                    print("✍️ Generating draft...")
+                                elif phase == 'draft_preview':
+                                    draft = event_data.get('draft','')
+                                    print(f"📝 Draft: {draft[:120]}{'...' if len(draft)>120 else ''}")
+                                else:
+                                    print(f"🤔 {title} ({phase})")
+                            elif event_type == 'final_start':
+                                print("✅ Streaming verified answer...")
                             elif event_type == 'response_chunk':
                                 chunk = event_data.get('chunk', '')
                                 if chunk:
-                                    print(f"💬 {chunk[:100]}..." if len(chunk) > 100 else f"💬 {chunk}")
+                                    print(f"💬 {chunk[:140]}..." if len(chunk) > 140 else f"💬 {chunk}")
                             
                             elif event_type == 'fact_check_result':
                                 print(f"✅ Fact-check: {event_data.get('status', '')} ({event_data.get('confidence', 0):.0%})")

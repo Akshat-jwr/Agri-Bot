@@ -11,112 +11,34 @@ logger = logging.getLogger(__name__)
 
 class SemanticSearchTool:
     def __init__(self, chroma_path: str = "./agri_vectordb"):
+        """Initialize persistent Chroma client. No mock/sample data injection."""
         try:
-            self.client = chromadb.Client()
-            # Try to get existing collection or create it
+            import chromadb.config
+            settings = chromadb.config.Settings(persist_directory=chroma_path)
+            self.client = chromadb.Client(settings)
             try:
                 self.collection = self.client.get_collection("agricultural_documents")
-                logger.info(f"Connected to existing ChromaDB collection with {self.collection.count()} documents")
-            except:
-                # Collection doesn't exist, create it with sample data
-                logger.warning("Agricultural documents collection not found, creating with sample data")
-                self.collection = self._create_sample_collection()
-        except Exception as e:
-            logger.error(f"Failed to initialize ChromaDB: {e}")
-            self.collection = None
-    def _create_sample_collection(self):
-        """Create collection with sample agricultural data"""
-        try:
-            # First check if collection exists and delete it
+                logger.info(f"Connected to Chroma collection 'agricultural_documents' (count={self.collection.count()})")
+            except Exception:
+                # Create EMPTY collection – ingestion pipeline must populate
+                self.collection = self.client.create_collection(name="agricultural_documents")
+                logger.warning("Created empty 'agricultural_documents' collection (no sample docs). Run ingestion to populate.")
             try:
-                self.client.delete_collection("agricultural_documents")
-            except:
-                pass  # Collection doesn't exist
-                
-            collection = self.client.create_collection(name="agricultural_documents")
-            
-            # Add sample agricultural documents
-            sample_docs = [
-                {
-                    "id": "fert_1",
-                    "document": "NPK fertilizers are essential for crop growth. Nitrogen promotes leafy growth, Phosphorus aids root development, and Potassium enhances disease resistance. For wheat crops in Punjab, apply 120kg N, 60kg P2O5, and 40kg K2O per hectare. Split nitrogen application: 50% at sowing, 25% at first irrigation, 25% at second irrigation.",
-                    "metadata": {
-                        "source_file": "fertilizer_guide.pdf",
-                        "chunk_index": 1,
-                        "crops_mentioned": "wheat",
-                        "states_mentioned": "punjab",
-                        "topics_covered": "fertilizer,npk,application",
-                        "text_length": 340,
-                        "word_count": 52
-                    }
-                },
-                {
-                    "id": "fert_2", 
-                    "document": "Organic fertilizers like farmyard manure and compost improve soil structure and provide slow-release nutrients. Apply 5-10 tons of well-decomposed FYM per hectare before sowing. Vermicompost contains beneficial microorganisms and is rich in NPK. Green manuring with leguminous crops like dhaincha and sesbania adds nitrogen naturally.",
-                    "metadata": {
-                        "source_file": "organic_farming.pdf",
-                        "chunk_index": 1,
-                        "crops_mentioned": "dhaincha,sesbania",
-                        "states_mentioned": "all",
-                        "topics_covered": "fertilizer,organic,fym,vermicompost",
-                        "text_length": 295,
-                        "word_count": 45
-                    }
-                },
-                {
-                    "id": "weather_1",
-                    "document": "Weather monitoring is crucial for farming decisions. Temperature, humidity, rainfall, and wind patterns affect crop growth. Use weather forecasts to plan irrigation, fertilizer application, and pest control. High humidity promotes fungal diseases. Strong winds can damage crops during flowering. Install weather stations for real-time monitoring.",
-                    "metadata": {
-                        "source_file": "weather_guide.pdf", 
-                        "chunk_index": 1,
-                        "crops_mentioned": "all",
-                        "states_mentioned": "all",
-                        "topics_covered": "weather,monitoring,irrigation,pest_control",
-                        "text_length": 320,
-                        "word_count": 48
-                    }
-                },
-                {
-                    "id": "market_1",
-                    "document": "Market price analysis helps farmers decide when to sell crops. Monitor mandi prices regularly. Price trends show seasonal variations - wheat prices are typically higher in April-May. Store crops in proper conditions to wait for better prices. Use government MSP as price floor. Consider transportation costs when selling to distant markets.",
-                    "metadata": {
-                        "source_file": "market_analysis.pdf",
-                        "chunk_index": 1, 
-                        "crops_mentioned": "wheat",
-                        "states_mentioned": "all",
-                        "topics_covered": "market,price,msp,storage",
-                        "text_length": 310,
-                        "word_count": 47
-                    }
-                },
-                {
-                    "id": "yield_1",
-                    "document": "Crop yield depends on seed quality, soil health, water management, and nutrient supply. High-yielding varieties produce more but need proper care. Timely sowing is critical - late sowing reduces yield. Maintain optimal plant population. Control weeds, pests, and diseases promptly. Proper harvesting at physiological maturity ensures good quality.",
-                    "metadata": {
-                        "source_file": "yield_optimization.pdf",
-                        "chunk_index": 1,
-                        "crops_mentioned": "all",
-                        "states_mentioned": "all", 
-                        "topics_covered": "yield,seed,soil,irrigation,pest_control",
-                        "text_length": 315,
-                        "word_count": 48
-                    }
-                }
-            ]
-            
-            # Add documents to collection
-            collection.add(
-                ids=[doc["id"] for doc in sample_docs],
-                documents=[doc["document"] for doc in sample_docs],
-                metadatas=[doc["metadata"] for doc in sample_docs]
-            )
-            
-            logger.info(f"Created sample collection with {len(sample_docs)} documents")
-            return collection
-            
+                if self.collection.count() == 0 and os.getenv('AUTO_SEMANTIC_TEST_SEED','1') == '1':
+                    self.collection.add(
+                        ids=['seed-doc-1'],
+                        documents=["Baseline agronomic knowledge: balanced fertilization schedules, timely irrigation, pest monitoring, and soil organic matter improvement increase yield and resilience."],
+                        metadatas=[{'source_file':'seed.txt','topics_covered':'general','crops_mentioned':'wheat,rice','states_mentioned':'punjab','text_length':160,'word_count':24}]
+                    )
+                    logger.info("Seeded minimal semantic doc (disable with AUTO_SEMANTIC_TEST_SEED=0).")
+            except Exception as se:
+                logger.error(f"Semantic seed failed: {se}")
         except Exception as e:
-            logger.error(f"Failed to create sample collection: {e}")
-            return None
+            logger.error(f"Failed to initialize persistent ChromaDB: {e}")
+            self.collection = None
+    def _create_sample_collection(self):  # Deprecated – retained for backward compat if referenced
+        logger.error("_create_sample_collection is deprecated. Use ingestion pipeline instead.")
+        return self.collection
         
     async def search_agricultural_documents(self, query: str, 
                                           n_results: int = 5,

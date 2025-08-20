@@ -8,6 +8,7 @@ import asyncpg
 import pandas as pd
 from typing import Dict, List, Optional, Union
 import logging
+from app.core.config import settings
 from datetime import datetime, timedelta
 import os
 
@@ -20,7 +21,11 @@ class AgriculturalSQLQueries:
     """
     
     def __init__(self, db_url: str = None):
-        self.db_url = db_url or os.getenv('DATABASE_URL', 'postgresql://postgres@localhost:5433/agri_db')
+        self.db_url = db_url or os.getenv('DATABASE_URL')
+        # Prefer settings (loads from .env) rather than raw environment
+        self.db_url = db_url or getattr(settings, 'DATABASE_URL', None)
+        if not self.db_url:
+            raise ValueError("DATABASE_URL not configured in .env or passed explicitly.")
         
     async def get_connection(self):
         """Get database connection with error handling"""

@@ -100,6 +100,9 @@ npm start           # production serve
 | Secrets | Strong JWT secret, rotate keys |
 | Vector store | Persist `CHROMA_DB_DIR` volume |
 
+### Use credentials akshat2306jwr@gmail.com , mypassword123 for testing.
+
+
 ---
 ## 8. Troubleshooting
 | Issue | Fix |

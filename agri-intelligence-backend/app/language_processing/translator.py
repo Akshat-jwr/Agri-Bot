@@ -6,7 +6,12 @@ import re
 import logging
 from typing import Tuple, List, Dict
 from langdetect import detect, DetectorFactory
-from googletrans import Translator
+try:  # Optional dependency; may fail due to httpx/httpcore version mismatches
+    from googletrans import Translator  # type: ignore
+    _GOOGLETRANS_AVAILABLE = True
+except Exception:  # Broad except to survive runtime environment issues
+    Translator = None  # type: ignore
+    _GOOGLETRANS_AVAILABLE = False
 from functools import lru_cache
 import time
 
@@ -16,8 +21,14 @@ logger = logging.getLogger(__name__)
 
 class OptimizedAgriculturalTranslator:
     def __init__(self):
-        # ✅ FIXED: Single reusable translator instance
-        self.translator = Translator()
+        # ✅ FIXED: Single reusable translator instance (optional)
+        if _GOOGLETRANS_AVAILABLE:
+            try:
+                self.translator = Translator()
+            except Exception:
+                self.translator = None
+        else:
+            self.translator = None  # Fallback: no translation
         
         # ✅ FIXED: Agricultural term preprocessing for better translations
         self.agricultural_terms = {
@@ -36,21 +47,41 @@ class OptimizedAgriculturalTranslator:
 
     @lru_cache(maxsize=1000)
     def detect_language(self, text: str) -> str:
-        """Fast language detection with caching"""
+        """Fast language detection with multi-script heuristic for Indian languages & code-switching"""
         try:
-            # Clean text for better detection
             clean_text = re.sub(r'[^\w\s]', ' ', text)
             if len(clean_text.split()) < 2:
                 return 'en'
-            
+
+            # Script block mapping (Unicode ranges)
+            script_ranges = {
+                'hi': [(0x0900, 0x097F)],  # Devanagari
+                'pa': [(0x0A00, 0x0A7F)],  # Gurmukhi
+                'bn': [(0x0980, 0x09FF)],  # Bengali
+                'gu': [(0x0A80, 0x0AFF)],  # Gujarati
+                'or': [(0x0B00, 0x0B7F)],  # Oriya
+                'ta': [(0x0B80, 0x0BFF)],  # Tamil
+                'te': [(0x0C00, 0x0C7F)],  # Telugu
+                'kn': [(0x0C80, 0x0CFF)],  # Kannada
+                'ml': [(0x0D00, 0x0D7F)],  # Malayalam
+            }
+            counts = {lang: 0 for lang in script_ranges}
+            for ch in text:
+                code = ord(ch)
+                for lang, ranges in script_ranges.items():
+                    if any(lo <= code <= hi for lo, hi in ranges):
+                        counts[lang] += 1
+            # Pick predominant script if significant
+            predominant = max(counts.items(), key=lambda x: x[1])
+            if predominant[1] >= 2:  # at least 2 chars from that script
+                return predominant[0]
+
+            # Fallback to langdetect for Latin or ambiguous text
             detected = detect(clean_text)
-            
-            # Handle common misdetections for Indian languages
-            if detected == 'ne' and any(char in text for char in 'किकेको'):
-                return 'hi'
-                
+            if detected == 'ne':  # common misdetection for Hindi
+                if any('\u0900' <= c <= '\u097F' for c in text):
+                    return 'hi'
             return detected
-            
         except Exception as e:
             logger.warning(f"Language detection failed: {e}")
             return 'en'
@@ -74,8 +105,11 @@ class OptimizedAgriculturalTranslator:
                 return text
                 
             # ✅ FIXED: Single whole-text translation call
-            result = self.translator.translate(text, src=src_lang, dest=dest_lang)
-            return result.text.strip()
+            if not self.translator:
+                # Fallback: return original text when translator unavailable
+                return text
+            result = self.translator.translate(text, src=src_lang, dest=dest_lang)  # type: ignore
+            return (getattr(result, 'text', text) or text).strip()
             
         except Exception as e:
             logger.error(f"Translation failed: {e}")

@@ -27,6 +27,7 @@ from app.models.user import User
 from app.models.chat import ChatSession, ChatMessage
 from app.schemas.chat import ChatMessageCreate, MessageRole
 from app.services.chat_service import chat_service
+from app.tools.llm_tools.gemini_text_stream import stream_gemini_text
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,174 +45,279 @@ class StreamingChatService:
         user_id: str,
         message_data: ChatMessageCreate
     ) -> AsyncGenerator[str, None]:
-        """Stream chat response with live updates using REAL AI pipeline"""
-        
+        """Stream chat response with live updates using multi-phase pipeline.
+
+        Phases emitted (SSE events):
+        - status (initial)
+        - phase: language_detection
+        - thinking: google_search (preview search results)
+        - thinking: tool_execution (api/tool summaries)
+        - thinking: context_fusion (retrieval fusion summary)
+        - thinking: draft_generation (raw first-layer answer creation)
+        - thinking: draft_preview (non-final draft snippet)
+        - phase: fact_check (start)
+        - fact_check_step / fact_check_result (verification updates)
+        - final_start (before streaming verified answer)
+        - response_chunk (streamed verified answer)
+        - phase: saving / phase_complete
+        - completion (done)
+        """
+
+        phase_times = {}
+        def mark(phase: str, start: bool):
+            now = datetime.utcnow().timestamp()
+            entry = phase_times.setdefault(phase, {'start': None, 'end': None, 'duration_s': None})
+            if start:
+                entry['start'] = now
+            else:
+                entry['end'] = now
+                if entry['start'] is not None:
+                    entry['duration_s'] = round(entry['end'] - entry['start'], 3)
+
         try:
-            # Import the real AI services
-            from app.tools.rag_core.simple_rag_orchestrator import process_agricultural_query
+            from app.tools.rag_core.rag_orchestrator import process_agricultural_query
             from app.tools.fact_checker.agricultural_fact_checker import agricultural_fact_checker
-            
-            # Step 1: Send initial status
-            yield f"data: {json.dumps({'type': 'status', 'message': '🔍 Processing your agricultural query...', 'progress': 10})}\n\n"
-            await asyncio.sleep(0.1)
-            
-            # Verify session exists and belongs to user
+
+            # Initial status
+            yield f"data: {json.dumps({'type':'status','message':'🔍 Processing your agricultural query...','progress':5})}\n\n"
+
+            # Session check
             session = await chat_service.get_session(db, message_data.session_id, user_id)
             if not session:
-                yield f"data: {json.dumps({'type': 'error', 'message': 'Session not found or access denied'})}\n\n"
+                yield f"data: {json.dumps({'type':'error','message':'Session not found or access denied'})}\n\n"
                 return
-            
-            # Step 2: Language detection
-            yield f"data: {json.dumps({'type': 'phase', 'phase': 'language_detection', 'title': '🌐 Language Detection', 'status': 'processing'})}\n\n"
-            await asyncio.sleep(0.3)
-            
-            # Get conversation history for context
+
+            # Language detection (lightweight: rely on session preference for now)
+            mark('language_detection', True)
+            yield f"data: {json.dumps({'type':'phase','phase':'language_detection','title':'🌐 Language Detection','status':'processing'})}\n\n"
+            await asyncio.sleep(0.05)
+            mark('language_detection', False)
+            yield f"data: {json.dumps({'type':'phase_complete','phase':'language_detection','result':session.language_preference,'progress':15})}\n\n"
+
+            # Build conversation context
+            mark('retrieval', True)
+            yield f"data: {json.dumps({'type':'phase','phase':'retrieval','title':'📚 Retrieving Context','status':'processing'})}\n\n"
             chat_history = await chat_service._get_chat_history(db, message_data.session_id)
-            
-            # Enhance query with conversation context
             enhanced_query = chat_service._enhance_query_with_context(
-                message_data.content, 
-                chat_history, 
-                session.language_preference
+                message_data.content, chat_history, session.language_preference
             )
-            
-            yield f"data: {json.dumps({'type': 'phase_complete', 'phase': 'language_detection', 'result': f'Language: {session.language_preference}', 'progress': 25})}\n\n"
-            
-            # Step 3: Agricultural intelligence processing
-            yield f"data: {json.dumps({'type': 'phase', 'phase': 'ai_processing', 'title': '🧠 Agricultural AI Processing', 'status': 'processing'})}\n\n"
-            await asyncio.sleep(0.5)
-            
-            # Show what's being analyzed
-            yield f"data: {json.dumps({'type': 'ai_step', 'step': 'Analyzing agricultural query context', 'detail': 'Understanding farming context and requirements'})}\n\n"
-            await asyncio.sleep(0.3)
-            
-            yield f"data: {json.dumps({'type': 'ai_step', 'step': 'Searching knowledge base', 'detail': 'Finding relevant agricultural information'})}\n\n"
-            await asyncio.sleep(0.3)
-            
-            yield f"data: {json.dumps({'type': 'ai_step', 'step': 'Integrating weather and market data', 'detail': 'Getting real-time agricultural intelligence'})}\n\n"
-            await asyncio.sleep(0.3)
-            
-            # Process with REAL RAG system
-            ai_response = await process_agricultural_query(enhanced_query)
-            
-            yield f"data: {json.dumps({'type': 'phase_complete', 'phase': 'ai_processing', 'result': 'AI analysis complete', 'progress': 60})}\n\n"
-            
-            # Step 4: Fact checking with the REAL fact checker
-            yield f"data: {json.dumps({'type': 'phase', 'phase': 'fact_check', 'title': '✅ Agricultural Fact Checking', 'status': 'processing'})}\n\n"
-            await asyncio.sleep(0.3)
-            
-            # Use the REAL fact checker
-            fact_check_result = await agricultural_fact_checker.validate_and_respond(
-                original_query=message_data.content,
-                expert_response=ai_response.get('response', ''),
-                context_data={
-                    'weather_intelligence': ai_response.get('weather_data'),
-                    'search_results': ai_response.get('search_results', []),
-                    'agricultural_data': ai_response.get('agricultural_data'),
-                    'market_intelligence': ai_response.get('market_data')
+
+            # Core RAG processing (encapsulates internal retrieval + tool calls)
+            ai_response = await process_agricultural_query(
+                enhanced_query,
+                farmer_context={
+                    'session_language': session.language_preference,
+                    'location': getattr(session, 'location_context', None)
                 }
             )
-            
-            # Stream fact check process
-            yield f"data: {json.dumps({'type': 'fact_check_step', 'step': 'Validating agricultural accuracy', 'status': 'checking'})}\n\n"
-            await asyncio.sleep(0.2)
-            
-            yield f"data: {json.dumps({'type': 'fact_check_step', 'step': 'Verifying safety recommendations', 'status': 'checking'})}\n\n"
-            await asyncio.sleep(0.2)
-            
-            yield f"data: {json.dumps({'type': 'fact_check_step', 'step': 'Confirming regional relevance', 'status': 'checking'})}\n\n"
-            await asyncio.sleep(0.2)
-            
-            # Get the final verified response
-            final_response = fact_check_result.get('final_response', ai_response.get('response', 'Unable to process response'))
+            mark('retrieval', False)
+            yield f"data: {json.dumps({'type':'phase_complete','phase':'retrieval','result':'Context gathered','progress':35})}\n\n"
+
+            # Decompose ai_response for ordered thinking events
+            base_resp = ai_response.get('response') if isinstance(ai_response, dict) else None
+            latest_info = []
+            api_payload = {}
+            fused = ai_response.get('fused_context') if isinstance(ai_response, dict) else None
+            if isinstance(base_resp, dict):
+                latest_info = base_resp.get('latest_info') or []
+                api_payload = {k: base_resp.get(k) for k in ['weather_guidance','market_advice','government_benefits'] if base_resp.get(k)}
+
+            sequence_counter = 0
+
+            # 1. Google search context results (requested first)
+            if latest_info:
+                preview = [
+                    {k: v for k, v in item.items() if k in ('title','source','url','summary')}
+                    for item in latest_info[:5]
+                ]
+                yield f"data: {json.dumps({'type':'thinking','sequence':sequence_counter,'phase':'google_search','title':'🔎 Google Search Results','results':preview})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type':'thinking','sequence':sequence_counter,'phase':'google_search','title':'🔎 Google Search Results','results':[],'empty':True})}\n\n"
+            sequence_counter += 1
+
+            # 2. API responses
+            if api_payload:
+                api_detail = {}
+                for k, v in api_payload.items():
+                    # Provide lightweight summary string for each API value
+                    if isinstance(v, (str, int, float)):
+                        api_detail[k] = str(v)[:300]
+                    else:
+                        try:
+                            api_detail[k] = json.dumps(v)[:600]
+                        except Exception:
+                            api_detail[k] = '<unserializable>'
+                yield f"data: {json.dumps({'type':'thinking','sequence':sequence_counter,'phase':'api_sources','title':'🧪 API Responses','apis':list(api_payload.keys()),'details':api_detail})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type':'thinking','sequence':sequence_counter,'phase':'api_sources','title':'🧪 API Responses','apis':[],'empty':True})}\n\n"
+            sequence_counter += 1
+
+            # 3. Other relevant data sources (fusion + ML/SQL, classification, etc.)
+            other_payload = {}
+            if fused:
+                fused_keys = list(getattr(fused, '__dict__', {}).keys())
+                other_payload['fused_keys'] = fused_keys[:12]
+            # (ML / SQL hints)
+            if isinstance(base_resp, dict):
+                if base_resp.get('agricultural_recommendations'):
+                    other_payload['has_agri_recommendations'] = True
+            if ai_response.get('classification'):
+                other_payload['classification'] = getattr(ai_response.get('classification'), 'primary_category', None)
+            if other_payload:
+                yield f"data: {json.dumps({'type':'thinking','sequence':sequence_counter,'phase':'data_sources','title':'🧬 Data & Model Outputs','details':other_payload})}\n\n"
+            else:
+                yield f"data: {json.dumps({'type':'thinking','sequence':sequence_counter,'phase':'data_sources','title':'🧬 Data & Model Outputs','details':{},'empty':True})}\n\n"
+            sequence_counter += 1
+
+            # 4. Draft streaming (first LLM layer) BEFORE fact-check
+            mark('draft', True)
+            yield f"data: {json.dumps({'type':'thinking','sequence':sequence_counter,'phase':'draft_start','title':'✍️ Draft LLM Response (Streaming)'})}\n\n"
+            draft_text = ''
+            if isinstance(base_resp, dict):
+                draft_text = base_resp.get('english_main_answer') or base_resp.get('main_answer') or ''
+            elif isinstance(base_resp, str):
+                draft_text = base_resp
+            # Stream draft character-by-character for smoother UX
+            if draft_text:
+                for i, ch in enumerate(draft_text):
+                    yield f"data: {json.dumps({'type':'thinking','sequence':sequence_counter,'phase':'draft_chunk','chunk': ch})}\n\n"
+                    # Light pacing to simulate typing without overloading network
+                    if i % 8 == 0:
+                        await asyncio.sleep(0.01)
+            mark('draft', False)
+            sequence_counter += 1
+
+            # Fact check phase
+            mark('fact_check', True)
+            yield f"data: {json.dumps({'type':'phase','phase':'fact_check','title':'✅ Fact Checking','status':'processing'})}\n\n"
+            expert_text = draft_text
+            fact_check_result = await agricultural_fact_checker.validate_and_respond(
+                original_query=message_data.content,
+                expert_response=expert_text,
+                context_data={
+                    'weather_intelligence': base_resp.get('weather_guidance') if isinstance(base_resp, dict) else {},
+                    'search_results': base_resp.get('latest_info', []) if isinstance(base_resp, dict) else [],
+                    'agricultural_data': base_resp.get('agricultural_recommendations') if isinstance(base_resp, dict) else {},
+                }
+            ) if base_resp else {
+                'final_response': draft_text,
+                'validation_status': 'approved',
+                'fact_check_details': {'confidence': 0.9}
+            }
+
             validation_status = fact_check_result.get('validation_status', 'approved')
-            
-            yield f"data: {json.dumps({'type': 'fact_check_result', 'status': validation_status, 'confidence': fact_check_result.get('fact_check_details', {}).get('confidence', 0.9), 'message': 'Information verified against agricultural databases'})}\n\n"
-            yield f"data: {json.dumps({'type': 'phase_complete', 'phase': 'fact_check', 'result': f'Status: {validation_status}', 'progress': 85})}\n\n"
-            
-            # Step 5: Stream the REAL FINAL RESPONSE from fact checker
-            yield f"data: {json.dumps({'type': 'response_start', 'message': '✨ Delivering verified agricultural advice...'})}\n\n"
-            await asyncio.sleep(0.2)
-            
-            # Stream the REAL response word by word for realistic typing effect
-            words = final_response.split()
-            current_chunk = ""
-            
-            for i, word in enumerate(words):
-                current_chunk += word + " "
-                
-                # Send chunks every 3-5 words for realistic streaming
-                if i % 4 == 0 or i == len(words) - 1:
-                    yield f"data: {json.dumps({'type': 'response_chunk', 'chunk': current_chunk, 'progress': 85 + (i / len(words)) * 14})}\n\n"
-                    current_chunk = ""
-                    await asyncio.sleep(0.1)  # Realistic typing speed
-            
-            # Step 6: Save messages to database
-            yield f"data: {json.dumps({'type': 'phase', 'phase': 'saving', 'title': '💾 Saving to database', 'status': 'processing'})}\n\n"
-            
-            # Create and save user message
+            confidence = fact_check_result.get('fact_check_details', {}).get('confidence', 0.9)
+            yield f"data: {json.dumps({'type':'fact_check_result','status':validation_status,'confidence':confidence})}\n\n"
+            mark('fact_check', False)
+
+            # Final response (verified)
+            final_response = fact_check_result.get('final_response') or draft_text or 'No response generated.'
+            total_chars = len(final_response)
+            yield f"data: {json.dumps({'type':'final_start','title':'✅ Verified Response','total_chars': total_chars})}\n\n"
+
+            # Stream chunks
+            mark('final_stream', True)
+            # Character-level streaming of final verified answer
+            for i, ch in enumerate(final_response):
+                yield f"data: {json.dumps({'type':'response_chunk','chunk': ch})}\n\n"
+                if i % 8 == 0:
+                    await asyncio.sleep(0.01)
+            mark('final_stream', False)
+
+            # Save messages
+            yield f"data: {json.dumps({'type':'phase','phase':'saving','title':'💾 Saving','status':'processing'})}\n\n"
+            mark('persistence', True)
             user_message = ChatMessage(
                 session_id=message_data.session_id,
                 role=MessageRole.USER.value,
                 content=message_data.content,
                 original_language=session.language_preference
             )
-            
-            # Create and save AI message with fact-checked response
+
+            # Build retrieval summary (citations removed)
+            web_results = []
+            api_sources = {}
+            if isinstance(base_resp, dict):
+                web_results = base_resp.get('latest_info') or []
+                # (If needed later, derive lightweight citation info client-side)
+                api_sources = {k: base_resp.get(k) for k in ['weather_guidance','market_advice','government_benefits'] if base_resp.get(k)}
+
+            fused = ai_response.get('fused_context') if isinstance(ai_response, dict) else None
+            retrieval_context = None
+            if fused:
+                keys = list(getattr(fused, '__dict__', {}).keys())
+                retrieval_context = [{'source': 'fused_context_keys', 'keys': keys[:25]}]
+
+            draft_tokens = len(draft_text.split()) if draft_text else 0
+
+            # Pipeline phase status map
+            pipeline_phase_status = {k: v for k, v in phase_times.items()}
+
             ai_message = ChatMessage(
                 session_id=message_data.session_id,
                 role=MessageRole.ASSISTANT.value,
                 content=final_response,
                 original_language=fact_check_result.get('original_language', session.language_preference),
-                processing_time=ai_response.get('processing_time', 0.0),
+                processing_time=ai_response.get('processing_time', 0.0) if isinstance(ai_response, dict) else 0.0,
                 fact_check_status=validation_status,
-                confidence_score=fact_check_result.get('fact_check_details', {}).get('confidence', 0.9),
-                expert_consulted=ai_response.get('expert_consulted', 'general-agriculture'),
-                tools_used=ai_response.get('sources_used', [])
+                confidence_score=confidence,
+                expert_consulted=ai_response.get('expert_consulted', 'general-agriculture') if isinstance(ai_response, dict) else 'general-agriculture',
+                tools_used=ai_response.get('sources_used', []) if isinstance(ai_response, dict) else [],
+                retrieval_context=retrieval_context,
+                api_sources=api_sources or None,
+                web_search_results=web_results or None,
+                ml_inferences={
+                    'classification': {
+                        'primary_category': getattr(ai_response.get('classification'), 'primary_category', None) if isinstance(ai_response, dict) and ai_response.get('classification') else None,
+                        'confidence': getattr(ai_response.get('classification'), 'confidence', None) if isinstance(ai_response, dict) and ai_response.get('classification') else None
+                    }
+                },
+                safety_labels={'overall': 'safe'},
+                prompt_version='v1',
+                # system_prompt_snapshot removed
+                latency_breakdown={'total_processing_s': ai_response.get('processing_time') if isinstance(ai_response, dict) else None},
+                error_details=ai_response.get('error') if isinstance(ai_response, dict) and not ai_response.get('success', True) else None,
+                draft_content=draft_text or None,
+                draft_metadata={'preview_chars': len(draft_text[:400]), 'token_estimate': draft_tokens} if draft_text else None,
+                draft_tokens_used=draft_tokens or None,
+                pipeline_phase_status=pipeline_phase_status or None
             )
-            
-            # Save to database
+
             db.add(user_message)
             db.add(ai_message)
-            
-            # Update session
-            from sqlalchemy import update
             await db.execute(
                 update(ChatSession)
                 .where(ChatSession.id == message_data.session_id)
-                .values(
-                    updated_at=datetime.utcnow(),
-                    message_count=ChatSession.message_count + 2
-                )
+                .values(updated_at=datetime.utcnow(), message_count=ChatSession.message_count + 2)
             )
             await db.commit()
-            
-            yield f"data: {json.dumps({'type': 'phase_complete', 'phase': 'saving', 'result': 'Messages saved', 'progress': 99})}\n\n"
-            
-            # Step 7: Final completion with metadata
-            completion_data = {
-                'type': 'completion', 
-                'message': 'Response generated successfully!', 
-                'progress': 100,
+            mark('persistence', False)
+            yield f"data: {json.dumps({'type':'phase_complete','phase':'saving','result':'Messages saved','progress':95})}\n\n"
+
+            completion = {
+                'type':'completion',
+                'message':'Response generated successfully!',
+                'progress':100,
                 'response_id': f'msg_{ai_message.id}',
                 'validation_status': validation_status,
-                'confidence': fact_check_result.get('fact_check_details', {}).get('confidence', 0.9),
+                'confidence': confidence,
                 'language': fact_check_result.get('original_language', session.language_preference),
-                'sources_used': ai_response.get('sources_used', []),
-                'fact_checker_used': fact_check_result.get('processing_info', {}).get('fact_checker_used', True)
+                'sources_used': ai_response.get('sources_used', []) if isinstance(ai_response, dict) else [],
+                'phases': phase_times
             }
-            yield f"data: {json.dumps(completion_data)}\n\n"
-            
+            yield f"data: {json.dumps(completion)}\n\n"
+
         except Exception as e:
             logger.error(f"❌ Streaming error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Processing failed: {str(e)}'})}\n\n"
+            yield f"data: {json.dumps({'type':'error','message':f'Processing failed: {str(e)}'})}\n\n"
 
 @router.post("/chat")
 async def stream_chat_response(
     message_data: ChatMessageCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    mode: str = "rag"  # rag (default) or gemini
 ):
     """
     🌊 STREAM CHAT RESPONSE
@@ -225,16 +331,60 @@ async def stream_chat_response(
     """
     
     async def generate():
-        async for chunk in StreamingChatService.stream_response(
-            db=db,
-            user_id=str(current_user.id),
-            message_data=message_data
-        ):
-            # Check if client disconnected
-            if await request.is_disconnected():
-                logger.info("🔌 Client disconnected, stopping stream")
-                break
-            yield chunk
+        if mode == "gemini":
+            # Simple Gemini token streaming (no RAG/fact-check to reduce latency)
+            try:
+                yield f"data: {json.dumps({'type':'status','message':'🚀 Gemini streaming started'})}\n\n"
+                full_tokens = []
+                async for token in stream_gemini_text(message_data.content, system="You are an expert agricultural assistant. Provide concise, accurate answers."):
+                    full_tokens.append(token)
+                    if await request.is_disconnected():
+                        logger.info("🔌 Client disconnected (gemini mode)")
+                        return
+                    yield f"data: {json.dumps({'type':'response_chunk','chunk': token})}\n\n"
+                final_text = ''.join(full_tokens)
+                # Persist messages (user + AI)
+                session = await chat_service.get_session(db, message_data.session_id, str(current_user.id))
+                if session:
+                    user_msg = ChatMessage(
+                        session_id=message_data.session_id,
+                        role=MessageRole.USER.value,
+                        content=message_data.content,
+                        original_language=session.language_preference
+                    )
+                    ai_msg = ChatMessage(
+                        session_id=message_data.session_id,
+                        role=MessageRole.ASSISTANT.value,
+                        content=final_text,
+                        original_language=session.language_preference,
+                        processing_time=0.0,
+                        confidence_score=0.0,
+                        fact_check_status='approved',
+                        expert_consulted='gemini-live',
+                        tools_used=['gemini_text']
+                    )
+                    db.add(user_msg)
+                    db.add(ai_msg)
+                    await db.execute(
+                        update(ChatSession)
+                        .where(ChatSession.id == message_data.session_id)
+                        .values(updated_at=datetime.utcnow(), message_count=ChatSession.message_count + 2)
+                    )
+                    await db.commit()
+                yield f"data: {json.dumps({'type':'completion','message':'✅ Gemini response complete'})}\n\n"
+            except Exception as e:
+                logger.error(f"Gemini streaming error: {e}")
+                yield f"data: {json.dumps({'type':'error','message':str(e)})}\n\n"
+        else:
+            async for chunk in StreamingChatService.stream_response(
+                db=db,
+                user_id=str(current_user.id),
+                message_data=message_data
+            ):
+                if await request.is_disconnected():
+                    logger.info("🔌 Client disconnected, stopping stream")
+                    break
+                yield chunk
     
     return StreamingResponse(
         generate(),

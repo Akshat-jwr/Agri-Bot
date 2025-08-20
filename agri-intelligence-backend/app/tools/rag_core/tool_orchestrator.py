@@ -20,6 +20,7 @@ from ..ml_tools.real_yield_prediction import real_yield_model
 from ..ml_tools.price_prediction import price_tool
 from ..data_tools.sql_queries import agricultural_sql
 from ..vector_tools.semantic_search import search_tool
+from .google_search_tool import google_search_tool
 from .query_classifier import QueryClassification
 
 logger = logging.getLogger(__name__)
@@ -114,7 +115,8 @@ class AgriculturalToolOrchestrator:
         category_tool_mapping = {
             'weather_impact': ['real_weather_apis', 'semantic_search'],
             'irrigation_planning': ['real_weather_apis', 'sql_queries', 'semantic_search'],
-            'market_price_forecasting': ['real_market_apis', 'price_prediction', 'semantic_search'],
+            # Added weather for richer contextual advice (previously missing causing empty weather section)
+            'market_price_forecasting': ['real_market_apis', 'price_prediction', 'semantic_search', 'real_weather_apis'],
             'crop_selection': ['real_yield_prediction', 'sql_queries', 'semantic_search'],
             'yield_prediction': ['real_yield_prediction', 'real_weather_apis', 'sql_queries'],
             'pest_disease_management': ['semantic_search', 'google_search', 'real_weather_apis'],
@@ -122,7 +124,16 @@ class AgriculturalToolOrchestrator:
             'government_schemes': ['government_apis', 'semantic_search', 'google_search'],
             'financial_planning': ['government_apis', 'real_market_apis', 'semantic_search'],
             'seasonal_planning': ['real_weather_apis', 'semantic_search', 'sql_queries'],
-            'soil_health': ['semantic_search', 'sql_queries', 'google_search']
+            'soil_health': ['semantic_search', 'sql_queries', 'google_search'],
+            # Added: general_farming baseline should still surface multi-domain context
+            'general_farming': [
+                'real_weather_apis',
+                'real_market_apis',
+                'real_yield_prediction',
+                'government_apis',
+                'semantic_search',
+                'google_search'
+            ]
         }
         
         tools = category_tool_mapping.get(primary_category, ['semantic_search'])
@@ -133,9 +144,11 @@ class AgriculturalToolOrchestrator:
             for tool in secondary_tools:
                 if tool not in tools:
                     tools.append(tool)
-        
-        # Limit total tools for performance (max 4 concurrent)
-        return tools[:4]
+        # Allow richer context (cap at 6 to include core domains)
+        # Ensure weather is always present for holistic advice (if not already added)
+        if 'real_weather_apis' not in tools:
+            tools.append('real_weather_apis')
+        return tools[:6]
 
     def _prepare_execution_context(self, 
                                  classification: QueryClassification,
@@ -241,21 +254,20 @@ class AgriculturalToolOrchestrator:
 
     async def _execute_government_tools(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute government schemes tools"""
-        # Create farmer profile from context
         farmer_profile = {
             'state': context['location'].get('state', 'Punjab'),
-            'land_size': 2,  # Default small farmer
+            'land_size': 2,
             'crop_type': context['entities'].get('crops', ['wheat'])[0] if context['entities'].get('crops') else 'wheat'
         }
-        
-        schemes = await government_tool.get_eligible_schemes(farmer_profile)
-        subsidies = await government_tool.get_subsidy_rates('fertilizer', farmer_profile['state'])
-        
-        return {
-            'eligible_schemes': schemes,
-            'subsidies': subsidies,
-            'farmer_profile': farmer_profile
-        }
+        try:
+            schemes = await government_tool.get_eligible_schemes(farmer_profile)
+        except NotImplementedError:
+            schemes = []
+        try:
+            subsidies = await government_tool.get_subsidy_rates('fertilizer', farmer_profile['state'])
+        except NotImplementedError:
+            subsidies = []
+        return {'eligible_schemes': schemes, 'subsidies': subsidies, 'farmer_profile': farmer_profile}
 
     async def _execute_yield_prediction(self, context: Dict[str, Any]) -> Dict[str, Any]:
         """Execute yield prediction"""
@@ -331,12 +343,21 @@ class AgriculturalToolOrchestrator:
         }
 
     async def _execute_google_search(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute Google Search for real-time information"""
-        # This will be implemented next
+        """Execute Google Search for real-time information (no mock)."""
+        classification = context['classification']
+        base_query = classification.primary_category.replace('_', ' ')
+        if context['entities'].get('crops'):
+            base_query += f" {context['entities']['crops'][0]}"
+        if context['location'].get('state'):
+            base_query += f" {context['location']['state']}"
+        results = await google_search_tool.search_agricultural_info(
+            query=base_query,
+            location=context['location'].get('state'),
+            num_results=5
+        )
         return {
-            'web_results': [],
-            'search_query': '',
-            'note': 'Google Search integration pending'
+            'web_results': results,
+            'search_query': base_query
         }
 
 # Global orchestrator instance

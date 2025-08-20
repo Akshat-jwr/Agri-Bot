@@ -111,6 +111,22 @@ class ChatMessageResponse(BaseModel):
     fact_check_status: FactCheckStatus
     accuracy_score: Optional[float]
     user_feedback: Optional[FeedbackType]
+    # New extended fields
+    retrieval_context: Optional[List[Dict[str, Any]]] = Field(None, description="Retrieved grounding chunks")
+    # Removed citations (derive from web_search_results if needed)
+    api_sources: Optional[Dict[str, Any]] = Field(None, description="External API data used in answer")
+    web_search_results: Optional[List[Dict[str, Any]]] = Field(None, description="Web / Google search results")
+    # Removed sql_results (not populated currently)
+    ml_inferences: Optional[Dict[str, Any]] = Field(None, description="ML model outputs / predictions")
+    safety_labels: Optional[Dict[str, Any]] = Field(None, description="Content safety / moderation labels")
+    prompt_version: Optional[str] = Field(None, description="Prompt / template version tag")
+    # Removed system_prompt_snapshot to reduce payload size
+    latency_breakdown: Optional[Dict[str, Any]] = Field(None, description="Latency metrics per pipeline step")
+    error_details: Optional[Dict[str, Any]] = Field(None, description="Partial / error diagnostic information")
+    draft_content: Optional[str] = Field(None, description="Unverified first-layer LLM draft")
+    draft_metadata: Optional[Dict[str, Any]] = Field(None, description="Metadata about draft generation")
+    draft_tokens_used: Optional[int] = Field(None, description="Token count used in draft generation")
+    pipeline_phase_status: Optional[Dict[str, Any]] = Field(None, description="Per-phase timing/status map")
 
     @validator('session_id', pre=True)
     def convert_session_uuid_to_str(cls, v):

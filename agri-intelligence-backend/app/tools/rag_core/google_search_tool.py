@@ -72,7 +72,12 @@ class GoogleSearchTool:
                 async with session.get(self.base_url, params=params) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return self._process_search_results(data)
+                        processed = self._process_search_results(data)
+                        # If Google API returned no usable items, fall back so downstream UI always has at least one result
+                        if not processed:
+                            logger.warning("Google Search returned 0 items – using fallback result")
+                            return self._fallback_search(query)
+                        return processed
                     else:
                         logger.error(f"Google Search API error: {response.status}")
                         return self._fallback_search(query)

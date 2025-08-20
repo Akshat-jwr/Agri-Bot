@@ -102,11 +102,41 @@ class ChatMessage(Base):
     detected_topic = Column(String(100), nullable=True)
     expert_consulted = Column(String(100), nullable=True)
     tools_used = Column(JSON, nullable=True)  # List of tools used for this response
-    
-    # Quality metrics
+
+    # 🔍 Retrieval & Knowledge Sources
+    retrieval_context = Column(JSON, nullable=True)  # Raw retrieved chunks / passages used to ground the answer
+    # Removed: citations (frontend can derive from web_search_results)
+
+    # 🌐 External / API Data
+    api_sources = Column(JSON, nullable=True)        # Structured API responses (weather, market, etc.)
+    web_search_results = Column(JSON, nullable=True) # Google / web contextual search results (sanitized)
+    # Removed: sql_results (not populated; can reintroduce if SQL tool added)
+
+    # 🤖 ML Inference Artifacts
+    ml_inferences = Column(JSON, nullable=True)      # Model outputs (classification, predictions, embeddings refs)
+
+    # ✍️ Two-Layer LLM Pipeline Fields
+    draft_content = Column(Text, nullable=True)       # First-layer (raw / unverified) LLM draft
+    draft_metadata = Column(JSON, nullable=True)      # Token counts, model name, timing for draft
+    draft_tokens_used = Column(Integer, nullable=True)
+    pipeline_phase_status = Column(JSON, nullable=True)  # Phase timing/status: retrieval, draft, fact_check
+
+    # 🛡️ Safety & Validation
+    safety_labels = Column(JSON, nullable=True)      # Safety / policy labels from moderation
     fact_check_status = Column(String(20), default='approved')  # approved, corrected, flagged
     accuracy_score = Column(Float, nullable=True)
     user_feedback = Column(String(20), nullable=True)  # thumbs_up, thumbs_down
+
+    # ⚙️ Prompting & System State
+    prompt_version = Column(String(50), nullable=True) # Version tag of system / prompt template
+    # Removed: system_prompt_snapshot (omit to reduce storage)
+
+    # ⏱️ Diagnostics
+    latency_breakdown = Column(JSON, nullable=True)    # {retrieval_ms, llm_ms, postprocess_ms, total_ms}
+    error_details = Column(JSON, nullable=True)        # If degraded / partial answer (error codes, stack summary)
+    
+    # Backward compatibility note:
+    # Original quality metric fields (fact_check_status, accuracy_score, user_feedback) retained above.
     
     # Relationships
     session = relationship("ChatSession", back_populates="messages")
@@ -129,7 +159,22 @@ class ChatMessage(Base):
             'detected_topic': self.detected_topic,
             'expert_consulted': self.expert_consulted,
             'tools_used': self.tools_used,
+            'retrieval_context': self.retrieval_context,
+            # 'citations' removed
+            'api_sources': self.api_sources,
+            'web_search_results': self.web_search_results,
+            # 'sql_results' removed
+            'ml_inferences': self.ml_inferences,
+            'draft_content': self.draft_content,
+            'draft_metadata': self.draft_metadata,
+            'draft_tokens_used': self.draft_tokens_used,
+            'pipeline_phase_status': self.pipeline_phase_status,
+            'safety_labels': self.safety_labels,
             'fact_check_status': self.fact_check_status,
             'accuracy_score': self.accuracy_score,
-            'user_feedback': self.user_feedback
+            'user_feedback': self.user_feedback,
+            'prompt_version': self.prompt_version,
+            # 'system_prompt_snapshot' removed
+            'latency_breakdown': self.latency_breakdown,
+            'error_details': self.error_details
         }

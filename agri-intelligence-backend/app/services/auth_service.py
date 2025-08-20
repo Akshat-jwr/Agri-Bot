@@ -7,6 +7,7 @@ from app.core.security import verify_password, create_access_token
 from app.services.email_service import EmailService
 from datetime import timedelta
 from app.core.config import settings
+import logging
 
 class AuthService:
     @staticmethod
@@ -21,19 +22,24 @@ class AuthService:
                     detail="Email already registered and verified. Please login instead."
                 )
             else:
-                # User exists but not verified - resend verification
+                # User exists but not verified - resend verification but DO NOT raise error; return informative payload
+                logging.info(f"[register] Unverified existing user {existing_user.email} requested registration -> resending token")
                 new_token = await regenerate_verification_token(db, existing_user)
                 background_tasks.add_task(
                     EmailService.send_verification_email,
                     existing_user.email,
                     new_token
                 )
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already registered but not verified. Verification email resent."
-                )
+                return {
+                    "user_id": str(existing_user.id),
+                    "email": existing_user.email,
+                    "already_registered": True,
+                    "verification_resent": True,
+                    "message": "Account already exists but is unverified. Verification email resent."
+                }
         
         # Create new user
+        logging.info(f"[register] Creating new user {user_data.email}")
         new_user = await create_user(db, user_data)
         
         # Send verification email
@@ -42,6 +48,7 @@ class AuthService:
             new_user.email,
             new_user.verification_token
         )
+        logging.info(f"[register] New user {new_user.email} created; verification email scheduled (token length={len(new_user.verification_token or '')})")
         
         return {
             "user_id": str(new_user.id),

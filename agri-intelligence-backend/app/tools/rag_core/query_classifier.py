@@ -125,16 +125,21 @@ class AgriculturalQueryClassifier:
                 if score > 0:
                     category_scores[category] = score * config['priority']
             
-            # Determine primary and secondary categories
+            # Determine primary and secondary categories with scaling to avoid ultra-low confidences
             if not category_scores:
                 primary_category = 'general_farming'
                 secondary_categories = []
                 confidence = 0.5
             else:
-                sorted_categories = sorted(category_scores.items(), key=lambda x: x[1], reverse=True)
-                primary_category = sorted_categories[0][0]  # Get category name
-                confidence = sorted_categories[0][1]  # Get score
-                secondary_categories = [cat for cat, score in sorted_categories[1:3] if score > 0.3]
+                max_raw = max(category_scores.values())
+                scale = 1.0
+                if 0 < max_raw < 0.6:
+                    scale = 0.6 / max_raw
+                scaled = {k: min(v * scale, 1.0) for k, v in category_scores.items()}
+                sorted_categories = sorted(scaled.items(), key=lambda x: x[1], reverse=True)
+                primary_category = sorted_categories[0][0]
+                confidence = sorted_categories[0][1]
+                secondary_categories = [cat for cat, score in sorted_categories[1:3] if score >= 0.35]
             
             # Determine intent and urgency
             intent = self._determine_intent(query_lower)
@@ -165,19 +170,13 @@ class AgriculturalQueryClassifier:
             )
 
     def _calculate_category_score(self, query: str, keywords: List[str]) -> float:
-        """Calculate relevance score for a category"""
-        score = 0
-        query_words = query.split()
-        
+        """Improved relevance score (no harsh length normalization)."""
+        score = 0.0
         for keyword in keywords:
-            if keyword in query:
-                # Exact match gets higher score
-                score += 0.3
-                # Bonus for multiple occurrences
-                score += query.count(keyword) * 0.1
-        
-        # Normalize by query length
-        return min(score / len(query_words), 1.0)
+            occ = query.count(keyword)
+            if occ:
+                score += 0.35 + (occ - 1) * 0.05
+        return min(score, 3.0)
 
     def _extract_entities(self, query: str) -> Dict[str, any]:
         """Extract agricultural entities from query"""

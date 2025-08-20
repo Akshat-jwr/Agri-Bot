@@ -10,6 +10,7 @@ interface ChatSidebarProps {
   currentSessionId: string | null
   onSessionSelect: (sessionId: string) => void
   onNewChat: () => void
+  refreshKey?: number // triggers reload when incremented
 }
 
 export function ChatSidebar({ 
@@ -17,7 +18,8 @@ export function ChatSidebar({
   onToggle, 
   currentSessionId, 
   onSessionSelect, 
-  onNewChat 
+  onNewChat,
+  refreshKey
 }: ChatSidebarProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([])
   const [loading, setLoading] = useState(false)
@@ -27,7 +29,7 @@ export function ChatSidebar({
     if (isOpen) {
       loadSessions()
     }
-  }, [isOpen])
+  }, [isOpen, refreshKey])
 
   const loadSessions = async () => {
     try {

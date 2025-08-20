@@ -17,16 +17,39 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
   const [currentMessage, setCurrentMessage] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [isFreshScreen, setIsFreshScreen] = useState<boolean>(true)
+  const [sidebarRefreshKey, setSidebarRefreshKey] = useState<number>(0)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [authForm, setAuthForm] = useState({ email: '', password: '' })
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [authError, setAuthError] = useState('')
+  const [verificationNotice, setVerificationNotice] = useState('')
+  const [pendingVerificationEmail, setPendingVerificationEmail] = useState('')
+  const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   
   // 🔥 SEXY THINKING UI STATES
   const [isThinking, setIsThinking] = useState(false)
   const [thinkingPhase, setThinkingPhase] = useState('')
   const [thinkingProgress, setThinkingProgress] = useState(0)
+  // Streaming specific state
+  const [streamingMode, setStreamingMode] = useState<'idle' | 'streaming'>('idle')
+  const [draftStream, setDraftStream] = useState('')
+  const [finalStream, setFinalStream] = useState('')
+  // Ref to avoid stale closure when appending final assistant message
+  const finalStreamRef = useRef('')
+  const [thinkingBoxes, setThinkingBoxes] = useState<{
+    google_search: { open: boolean; results: any[]; empty?: boolean }
+    api_sources: { open: boolean; apis: string[]; details: Record<string,string>; empty?: boolean }
+    data_sources: { open: boolean; details: any; empty?: boolean }
+    draft: { open: boolean; content: string }
+  }>({
+    google_search: { open: true, results: [] },
+    api_sources: { open: true, apis: [], details: {} },
+    data_sources: { open: false, details: {} },
+    draft: { open: true, content: '' }
+  })
+  const [activeSequence, setActiveSequence] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -36,10 +59,10 @@ export default function ChatInterface() {
   // Load chat history when session is created
   const loadChatHistory = async (sessionId: string) => {
     setIsLoadingHistory(true)
-    try {
-      const chatMessages = await apiService.getSessionMessages(sessionId)
-      const formattedMessages: Message[] = chatMessages.map(msg => ({
-        id: msg.id,
+         try {
+           const chatMessages = await apiService.getSessionMessages(sessionId)
+           const formattedMessages: Message[] = chatMessages.map(msg => ({
+             id: msg.id,
         role: msg.role as 'user' | 'assistant',
         content: msg.content,
         timestamp: new Date(msg.created_at)
@@ -63,11 +86,21 @@ export default function ChatInterface() {
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
     setAuthError('')
+    setVerificationNotice('')
     
     try {
       if (authMode === 'login') {
         console.log('🔐 Logging in...')
-        await apiService.login(authForm.email, authForm.password)
+        try {
+          await apiService.login(authForm.email, authForm.password)
+        } catch (err) {
+          if (err instanceof Error && /not verified/i.test(err.message)) {
+            setVerificationNotice(err.message)
+            setPendingVerificationEmail(authForm.email)
+            return
+          }
+          throw err
+        }
         setIsAuthenticated(true)
         console.log('✅ Login successful')
         
@@ -75,13 +108,27 @@ export default function ChatInterface() {
         // This allows for proper session management with the sidebar
         
       } else {
-        await apiService.register(authForm.email, authForm.password)
-        alert('Registration successful! Please check your email for verification.')
+  const res = await apiService.register(authForm.email, authForm.password)
+  alert(res.message || 'Registration complete. Please check your email for verification.')
         setAuthMode('login')
       }
     } catch (error) {
       console.error('❌ Authentication failed:', error)
       setAuthError(error instanceof Error ? error.message : 'Authentication failed')
+    }
+  }
+
+  const handleResendVerification = async () => {
+    if (!pendingVerificationEmail) return
+    setResendStatus('sending')
+    try {
+      await apiService.resendVerification(pendingVerificationEmail)
+      setResendStatus('sent')
+    } catch (e) {
+      console.error('Resend verification failed', e)
+      setResendStatus('error')
+    } finally {
+      setTimeout(() => setResendStatus('idle'), 4000)
     }
   }
 
@@ -153,7 +200,7 @@ export default function ChatInterface() {
       // Create session if it doesn't exist
       let currentSessionId = sessionId
       if (!currentSessionId) {
-        console.log('🔄 Creating new chat session...')
+  console.log('🔄 Creating new chat session (fresh screen or no current)...')
         const session = await apiService.createChatSession({
           title: currentMessage.substring(0, 50) + (currentMessage.length > 50 ? '...' : ''),
           language_preference: 'english'
@@ -161,6 +208,8 @@ export default function ChatInterface() {
         currentSessionId = session.id
         setSessionId(currentSessionId)
         console.log('✅ Created session:', currentSessionId)
+  setIsFreshScreen(false)
+  setSidebarRefreshKey(k => k + 1)
       }
 
       const userMessage: Message = {
@@ -177,31 +226,8 @@ export default function ChatInterface() {
       console.log('📤 Sending message to session:', currentSessionId)
       console.log('Message content:', messageToSend)
       
-      // Start the sexy thinking animation
-      const thinkingPromise = startThinkingAnimation()
-      
-      // Send message to API
-      const responsePromise = apiService.sendMessage(currentSessionId, messageToSend)
-      
-      // Wait for both to complete
-      const [_, responseMessages] = await Promise.all([thinkingPromise, responsePromise])
-      
-      // Get the assistant's response (should be the last message)
-      const assistantResponse = responseMessages.find(msg => msg.role === 'assistant')
-      
-      if (assistantResponse) {
-        // Add the complete response
-        const assistantMessage: Message = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: assistantResponse.content,
-          timestamp: new Date()
-        }
-        
-        setMessages(prev => [...prev, assistantMessage])
-      }
-      setIsThinking(false)
-      console.log('✅ AI processing completed')
+  // Start streaming via EventSource
+  startStreaming(currentSessionId, messageToSend)
       
     } catch (error) {
       console.error('❌ Failed to send message:', error)
@@ -227,6 +253,82 @@ export default function ChatInterface() {
     }
   }
 
+  const startStreaming = (sessionId: string, content: string) => {
+    setStreamingMode('streaming')
+    setDraftStream('')
+    setFinalStream('')
+  finalStreamRef.current = ''
+    // Don't wipe earlier thinking boxes if re-streaming within same session; just reset draft
+    setThinkingBoxes(prev => ({
+      ...prev,
+      draft: { ...prev.draft, content: '' }
+    }))
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+    if (!token) return
+    const url = `${process.env.NEXT_PUBLIC_STREAMING_URL || 'http://localhost:8000/api/v1/streaming'}/chat?session_id=${encodeURIComponent(sessionId)}&content=${encodeURIComponent(content)}&token=${encodeURIComponent(token)}`
+    const es = new EventSource(url)
+    es.onmessage = (e) => {
+      if (!e.data) return
+      try {
+        const payload = JSON.parse(e.data)
+        if (payload.type === 'thinking') {
+          setActiveSequence(payload.sequence ?? null)
+          switch (payload.phase) {
+            case 'google_search':
+              setThinkingBoxes(prev => ({ ...prev, google_search: { ...prev.google_search, results: payload.results || [], empty: payload.empty } }))
+              break
+            case 'api_sources':
+              setThinkingBoxes(prev => ({ ...prev, api_sources: { ...prev.api_sources, apis: payload.apis || [], details: payload.details || {}, empty: payload.empty } }))
+              break
+            case 'data_sources':
+              setThinkingBoxes(prev => ({ ...prev, data_sources: { ...prev.data_sources, details: payload.details || {}, empty: payload.empty } }))
+              break
+            case 'draft_start':
+              setThinkingBoxes(prev => ({ ...prev, draft: { ...prev.draft, content: '' } }))
+              break
+            case 'draft_chunk':
+              if (payload.chunk) {
+                setDraftStream(d => d + payload.chunk)
+                setThinkingBoxes(prev => ({ ...prev, draft: { ...prev.draft, content: prev.draft.content + payload.chunk } }))
+              }
+              break
+          }
+        } else if (payload.type === 'response_chunk') {
+          if (payload.chunk) {
+            setFinalStream(f => {
+              const next = f + payload.chunk
+              finalStreamRef.current = next
+              return next
+            })
+          }
+        } else if (payload.type === 'completion') {
+          // Append final assistant message
+          const contentToAppend = (finalStreamRef.current || finalStream).trim()
+          if (contentToAppend.length > 0) {
+            setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: contentToAppend, timestamp: new Date() }])
+          } else {
+            setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: '**Error:** No content received from backend', timestamp: new Date() }])
+          }
+          es.close()
+          setStreamingMode('idle')
+          setIsThinking(false)
+        } else if (payload.type === 'error') {
+          setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: `**Error:** ${payload.message}`, timestamp: new Date() }])
+          es.close()
+          setStreamingMode('idle')
+          setIsThinking(false)
+        }
+      } catch (err) {
+        console.error('Bad SSE payload', err)
+      }
+    }
+    es.onerror = () => {
+      es.close()
+      setStreamingMode('idle')
+      setIsThinking(false)
+    }
+  }
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -239,6 +341,7 @@ export default function ChatInterface() {
   const handleSessionSelect = async (selectedSessionId: string) => {
     setSessionId(selectedSessionId)
     setMessages([])
+    setIsFreshScreen(false)
     await loadChatHistory(selectedSessionId)
   }
 
@@ -246,6 +349,7 @@ export default function ChatInterface() {
     console.log('🆕 Starting new chat...')
     setSessionId(null)
     setMessages([])
+    setIsFreshScreen(true)
     
     // Session will be created when first message is sent
   }
@@ -292,6 +396,23 @@ export default function ChatInterface() {
               <div className="text-sm text-red-600">{authError}</div>
             )}
 
+            {verificationNotice && (
+              <div className="text-sm bg-yellow-50 border border-yellow-200 text-yellow-800 p-3 rounded-md space-y-2">
+                <p>{verificationNotice}</p>
+                <div className="flex items-center space-x-3">
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resendStatus === 'sending'}
+                    className="px-3 py-1 text-xs font-medium rounded-md bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-50"
+                  >
+                    {resendStatus === 'sending' ? 'Sending...' : resendStatus === 'sent' ? 'Sent!' : 'Resend Email'}
+                  </button>
+                  {resendStatus === 'error' && <span className="text-xs text-red-600">Failed. Try again.</span>}
+                </div>
+              </div>
+            )}
+
             <button
               type="submit"
               className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -324,6 +445,7 @@ export default function ChatInterface() {
           currentSessionId={sessionId}
           onSessionSelect={handleSessionSelect}
           onNewChat={handleNewChat}
+         refreshKey={sidebarRefreshKey}
         />
       </div>
 
@@ -472,6 +594,72 @@ export default function ChatInterface() {
                     </div>
                   </div>
                 ))}
+
+                {/* THINKING BOXES */}
+                {streamingMode === 'streaming' && (
+                  <div className="space-y-4">
+                    {['google_search','api_sources','data_sources','draft'].map(key => {
+                      const cfg:any = (thinkingBoxes as any)[key]
+                      const titles:Record<string,string> = {
+                        google_search:'🔎 Google Search Results',
+                        api_sources:'🧪 API Responses',
+                        data_sources:'🧬 Data & Model Outputs',
+                        draft:'✍️ Draft LLM Response'
+                      }
+                      return (
+                        <div key={key} className="border border-slate-200 bg-white rounded-xl shadow-sm">
+                          <button onClick={()=>setThinkingBoxes(prev=>({...prev,[key]:{...cfg,open:!cfg.open}}))} className="w-full flex items-center justify-between px-4 py-2 text-left">
+                            <span className="font-semibold text-sm text-gray-700">{titles[key]}</span>
+                            <span className="text-gray-500 text-xs">{cfg.open ? '▼' : '▶'}</span>
+                          </button>
+                          {cfg.open && (
+                            <div className="px-4 pb-4 text-sm text-gray-700 space-y-2">
+                              {key==='google_search' && (
+                                cfg.results?.length ? cfg.results.map((r:any,i:number)=>(
+                                  <div key={i} className="p-2 rounded bg-slate-50 border border-slate-100">
+                                    <div className="font-medium">{r.title||r.source||'Result'}</div>
+                                    {r.summary && <div className="text-xs text-gray-600">{r.summary}</div>}
+                                    {r.url && <a className="text-xs text-green-600 underline" href={r.url} target="_blank">Source</a>}
+                                  </div>
+                                )) : <div className="italic text-xs text-gray-500">{cfg.empty? 'No results' : 'Loading...'}</div>
+                              )}
+                              {key==='api_sources' && (
+                                cfg.apis?.length ? Object.entries(cfg.details||{}).map(([k,v]:any)=>(
+                                  <div key={k} className="p-2 rounded bg-slate-50 border border-slate-100">
+                                    <div className="font-medium">{k}</div>
+                                    <div className="text-xs whitespace-pre-wrap break-words text-gray-600">{v}</div>
+                                  </div>
+                                )) : <div className="italic text-xs text-gray-500">{cfg.empty? 'No API data' : 'Waiting for API outputs...'}</div>
+                              )}
+                              {key==='data_sources' && (
+                                Object.keys(cfg.details||{}).length ? <pre className="text-xs whitespace-pre-wrap break-words">{JSON.stringify(cfg.details,null,2)}</pre> : <div className="italic text-xs text-gray-500">{cfg.empty? 'No data sources' : 'Collecting...'}</div>
+                              )}
+                              {key==='draft' && (
+                                <div className="text-xs whitespace-pre-wrap font-mono leading-relaxed">{draftStream || '...'}</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* LIVE FINAL RESPONSE (while streaming) */}
+                {streamingMode==='streaming' && finalStream && (
+                  <div className="flex justify-start">
+                    <div className="flex items-start space-x-4 max-w-4xl">
+                      <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-green-400 to-green-600 text-white flex items-center justify-center shadow-lg animate-pulse">
+                        <Bot className="w-5 h-5" />
+                      </div>
+                      <div className="bg-white border border-slate-200 shadow-xl rounded-2xl p-6 max-w-3xl">
+                        <div className="text-gray-700 leading-relaxed whitespace-pre-wrap">
+                          {finalStream}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* 🔥 PREMIUM THINKING BUBBLE */}
                 {isThinking && (

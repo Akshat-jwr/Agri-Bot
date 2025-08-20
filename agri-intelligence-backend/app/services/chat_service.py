@@ -23,7 +23,7 @@ from app.schemas.chat import (
     ChatSessionCreate, ChatSessionUpdate, ChatMessageCreate, 
     MessageRole, FactCheckStatus
 )
-from app.tools.rag_core.simple_rag_orchestrator import process_agricultural_query
+from app.tools.rag_core.rag_orchestrator import process_agricultural_query
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -257,10 +257,83 @@ class ChatService:
             )
             
             # Process with RAG system
-            ai_response = await process_agricultural_query(enhanced_query)
+            # Use full RAG orchestrator (multilingual + tool orchestration)
+            ai_response = await process_agricultural_query(
+                enhanced_query,
+                farmer_context={
+                    'session_language': session.language_preference,
+                    'location': session.location_context
+                }
+            )
             
             # Process AI response with metadata
             ai_content, ai_metadata = self._process_ai_response(ai_response, session.language_preference)
+
+            # Derive extended metadata for new ChatMessage fields
+            fused_context = ai_response.get('fused_context')
+            # Defensive attribute access helper
+            def _ctx(obj, attr, default=None):
+                try:
+                    return getattr(obj, attr)
+                except Exception:
+                    return default
+
+            weather_ctx = _ctx(fused_context, 'weather_intelligence', {}) if fused_context else {}
+            market_ctx = _ctx(fused_context, 'market_intelligence', {}) if fused_context else {}
+            agri_ctx = _ctx(fused_context, 'agricultural_data', {}) if fused_context else {}
+            govt_ctx = _ctx(fused_context, 'government_info', {}) if fused_context else {}
+            web_ctx = _ctx(fused_context, 'web_intelligence', {}) if fused_context else {}
+            # Prefer structured latest_info over legacy latest_info alias
+            search_results = []
+            if isinstance(ai_response.get('response'), dict):
+                resp_obj = ai_response.get('response')
+                search_results = resp_obj.get('latest_info') or resp_obj.get('search_results') or []
+            classification = ai_response.get('classification')
+
+            # Build retrieval context (compact snippets for audit)
+            retrieval_context = []
+            def _add_ctx(name, data):
+                if data:
+                    retrieval_context.append({
+                        'source': name,
+                        'keys': list(data.keys())[:10]
+                    })
+            _add_ctx('weather', weather_ctx)
+            _add_ctx('market', market_ctx)
+            _add_ctx('agricultural', agri_ctx)
+            _add_ctx('government', govt_ctx)
+            _add_ctx('web_intelligence', web_ctx)
+
+            # Citations removed: frontend can derive from web_search_results
+
+            api_sources = {
+                'weather_intelligence': weather_ctx if weather_ctx else None,
+                'market_intelligence': market_ctx if market_ctx else None,
+                'government_info': govt_ctx if govt_ctx else None
+            }
+            # Remove empty entries
+            api_sources = {k: v for k, v in api_sources.items() if v}
+
+            # sql_results removed from model
+            ml_inferences = {}
+            if classification:
+                try:
+                    ml_inferences['classification'] = {
+                        'primary_category': getattr(classification, 'primary_category', None),
+                        'confidence': getattr(classification, 'confidence', None)
+                    }
+                except Exception:
+                    pass
+            if isinstance(agri_ctx, dict) and 'yield_forecast' in agri_ctx:
+                ml_inferences['yield_prediction'] = agri_ctx.get('yield_forecast')
+
+            safety_labels = {'overall': 'safe'}  # Placeholder until moderation integrated
+
+            latency_breakdown = {
+                'total_processing_s': ai_response.get('processing_time'),
+            }
+            prompt_version = 'v1'  # Tag for reproducibility
+            system_prompt_snapshot = ai_metadata.get('system_prompt', '') if isinstance(ai_metadata, dict) else ''
             
             # Create AI message
             ai_message = ChatMessage(
@@ -272,7 +345,16 @@ class ChatService:
                 fact_check_status=ai_metadata.get('fact_check_status', 'approved'),
                 confidence_score=ai_metadata.get('confidence_score', 0.9),
                 expert_consulted=ai_metadata.get('expert_consulted', 'general-agriculture'),
-                tools_used=ai_metadata.get('sources_used', [])
+                tools_used=ai_metadata.get('sources_used', []),
+                retrieval_context=retrieval_context or None,
+                api_sources=api_sources or None,
+                web_search_results=search_results if search_results else None,
+                ml_inferences=ml_inferences or None,
+                safety_labels=safety_labels,
+                prompt_version=prompt_version,
+                # system_prompt_snapshot removed
+                latency_breakdown=latency_breakdown or None,
+                error_details=ai_response.get('error') if not ai_response.get('success', True) else None
             )
             
             # Save both messages
@@ -351,21 +433,26 @@ Please provide a response that takes into account the conversation history above
     
     def _process_ai_response(self, ai_response: Dict[str, Any], 
                            language: str = None) -> Tuple[str, Dict[str, Any]]:
-        """Process AI response and extract metadata"""
-        
-        # Extract content
-        content = ai_response.get('response', ai_response.get('answer', 'No response available'))
-        
-        # Extract metadata
+        """Process AI response and extract metadata, normalizing new orchestrator shape"""
+        raw = ai_response.get('response')
+        content: str
+        if isinstance(raw, dict):
+            # New orchestrator returns structured dict with main_answer
+            content = raw.get('main_answer') or raw.get('english_main_answer') or str(raw)
+        else:
+            content = raw or ai_response.get('answer', 'No response available')
+
         metadata = {
-            'model_used': ai_response.get('model_used', 'agricultural-expert'),
+            'model_used': ai_response.get('metadata', {}).get('model', 'agricultural-expert'),
             'processing_time': ai_response.get('processing_time', 0.0),
-            'confidence_score': ai_response.get('confidence_score', 0.9),
-            'fact_check_status': FactCheckStatus.APPROVED,
-            'sources_used': ai_response.get('sources', []),
-            'expert_consulted': ai_response.get('expert_type', 'general-agriculture')
+            'confidence_score': ai_response.get('confidence_score', 0.0),
+            'fact_check_status': FactCheckStatus.APPROVED.value,
+            'sources_used': ai_response.get('tools_used', []),
+            'expert_consulted': (
+                getattr(ai_response.get('classification'), 'primary_category', None)
+                if ai_response.get('classification') is not None else 'general-agriculture'
+            ) or 'general-agriculture'
         }
-        
         return content, metadata
 
 # Global instance
